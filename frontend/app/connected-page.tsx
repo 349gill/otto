@@ -5,6 +5,7 @@ import OttoLogo from "./otto-logo";
 import {
   connectRepo,
   disconnectRepo,
+  getGitHubAuthTarget,
   getGitHubAuthUrl,
   getGitHubRepos,
   getRepository,
@@ -289,8 +290,13 @@ export default function ConnectedPage() {
       .includes(search.toLowerCase()),
   );
 
-  function handleGitHubLogin() {
-    window.location.href = getGitHubAuthUrl();
+  async function handleGitHubLogin() {
+    try {
+      const targetUrl = await getGitHubAuthTarget();
+      window.location.href = targetUrl;
+    } catch {
+      window.location.href = getGitHubAuthUrl();
+    }
   }
 
   async function refreshWorkspace() {
