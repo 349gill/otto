@@ -69,7 +69,7 @@ jobs:
           echo "serious=$SERIOUS" >> "$GITHUB_OUTPUT"
           echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
 
-          echo "### 🔒 Otto Security Scan" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Otto Security Scan" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Status:** $STATUS" >> "$GITHUB_STEP_SUMMARY"
           echo "**Serious:** $SERIOUS | **Minor:** $MINOR" >> "$GITHUB_STEP_SUMMARY"
