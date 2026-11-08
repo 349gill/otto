@@ -14,7 +14,13 @@ import { exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment } fr
 type AuthedRequest = Request & { userId?: string };
 
 const app = express();
-app.use(cors({ origin: config.frontendOrigin }));
+app.use(
+  cors({
+    origin: (origin, callback) => callback(null, true),
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "ngrok-skip-browser-warning", "X-Otto-Secret", "Accept"],
+  })
+);
 app.use(express.json({ limit: "100kb" }));
 
 // ---------- rate limiters ----------
@@ -43,7 +49,11 @@ app.get("/auth/github", (_req, res) => {
     redirect_uri: callbackUrl,
     state: randomBytes(16).toString("hex"),
   });
-  res.redirect(`https://github.com/login/oauth/authorize?${params}`);
+  const target = `https://github.com/login/oauth/authorize?${params}`;
+  if (_req.headers.accept?.includes("application/json") || _req.query.format === "json") {
+    return res.json({ url: target });
+  }
+  res.redirect(target);
 });
 
 // ---------- 3. GET /auth/github/callback  (exchange code) ----------
@@ -80,10 +90,23 @@ app.get("/auth/github/callback", authLimiter, async (req, res) => {
       name: ghUser.login,
       avatar: ghUser.avatar_url,
     });
-    res.redirect(`${config.frontendOrigin}/auth/callback#${fragment}`);
+
+    if (req.headers.accept?.includes("application/json") || req.query.format === "json") {
+      return res.json({
+        token,
+        email: user.email || ghUser.email || "",
+        name: ghUser.login,
+        avatar: ghUser.avatar_url,
+      });
+    }
+
+    res.redirect(`${config.frontendOrigin}/#${fragment}`);
   } catch (err: any) {
     console.error("GitHub OAuth error:", err);
-    res.redirect(`${config.frontendOrigin}/auth/callback#error=${encodeURIComponent(err.message)}`);
+    if (req.headers.accept?.includes("application/json") || req.query.format === "json") {
+      return res.status(400).json({ error: err.message || "OAuth failed" });
+    }
+    res.redirect(`${config.frontendOrigin}/#error=${encodeURIComponent(err.message)}`);
   }
 });
 
