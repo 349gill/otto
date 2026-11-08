@@ -14,6 +14,9 @@ import { exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment } fr
 type AuthedRequest = Request & { userId?: string };
 
 const app = express();
+// Trust proxy (ngrok, cloud load balancers, Cloudflare)
+app.set("trust proxy", 1);
+
 app.use(
   cors({
     origin: (origin, callback) => callback(null, true),
@@ -24,8 +27,16 @@ app.use(
 app.use(express.json({ limit: "100kb" }));
 
 // ---------- rate limiters ----------
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20 });
-const heavyLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 30 });
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  validate: { xForwardedForHeader: false },
+});
+const heavyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  validate: { xForwardedForHeader: false },
+});
 
 // ---------- auth middleware ----------
 function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
