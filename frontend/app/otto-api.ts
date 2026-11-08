@@ -116,3 +116,18 @@ export function getRepository(id: string, token: string) {
 export function triggerScan(token: string, repoId: string) {
   return request<{ status: string; commit: string; findings?: ApiFinding[] }>(`/repos/${encodeURIComponent(repoId)}/scan`, token, { method: "POST" });
 }
+
+// Ad-hoc target scans
+export function targetPortScan(token: string, host: string, authorized: boolean) {
+  return request<{ findings: ApiFinding[]; summary: string }>("/target/port-scan", token, {
+    method: "POST",
+    body: JSON.stringify({ host, authorized }),
+  });
+}
+
+export function targetApiScan(token: string, baseUrl: string, spec: string, authorized: boolean) {
+  return request<{ findings: ApiFinding[]; summary: string }>("/target/api-scan", token, {
+    method: "POST",
+    body: JSON.stringify({ baseUrl, spec, authorized }),
+  });
+}

@@ -9,6 +9,7 @@ import { config } from "./config.js";
 import { Repo, Scan, User, oid, type Finding } from "./models.js";
 import { gemini, scanWithGemini } from "./gemini.js";
 import { scanExposure } from "./exposure.js";
+import { portScanTarget, apiSpecScan } from "./target.js";
 import { cloneRepo, getDiff, readSource, exec } from "./git.js";
 import { exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment } from "./github.js";
 
@@ -316,6 +317,34 @@ app.post("/repos/:id/scan", requireAuth, heavyLimiter, async (req: AuthedRequest
     res.json(result);
   } finally {
     running.delete(String(repo._id));
+  }
+});
+
+// ---------- Target scans: live port scan + API spec test (ad-hoc, not tied to a repo) ----------
+app.post("/target/port-scan", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
+  try {
+    const host = String(req.body?.host ?? "").trim();
+    const authorized = req.body?.authorized === true;
+    if (!host) return res.status(400).json({ error: "host is required" });
+    console.log(`\n[Otto API] Live port scan requested for: ${host} (authorized=${authorized})`);
+    const result = await portScanTarget(host, authorized);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || String(err) });
+  }
+});
+
+app.post("/target/api-scan", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
+  try {
+    const baseUrl = String(req.body?.baseUrl ?? "").trim();
+    const spec = String(req.body?.spec ?? "");
+    const authorized = req.body?.authorized === true;
+    if (!spec) return res.status(400).json({ error: "spec (OpenAPI JSON) is required" });
+    console.log(`\n[Otto API] API spec scan requested for: ${baseUrl || "(from spec servers)"} (authorized=${authorized})`);
+    const result = await apiSpecScan(baseUrl, spec, authorized);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || String(err) });
   }
 });
 
