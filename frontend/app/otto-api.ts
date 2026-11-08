@@ -52,6 +52,7 @@ export type ApiRepoDetail = {
     branch: string;
     githubFullName: string;
     lastScannedCommit: string | null;
+    webhookSecret?: string;
   };
   current: null | {
     status: ScanStatus;

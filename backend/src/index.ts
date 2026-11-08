@@ -217,6 +217,7 @@ app.get("/repos/:id", requireAuth, async (req: AuthedRequest, res) => {
       branch: repo.branch,
       githubFullName: repo.githubFullName,
       lastScannedCommit: repo.lastScannedCommit,
+      webhookSecret: repo.webhookSecret,
     },
     current: latest
       ? { status: latest.status, counts: latest.counts, findings: latest.findings, scannedAt: (latest as any).createdAt, commit: latest.commit }
@@ -277,11 +278,15 @@ app.post("/scan", async (req: AuthedRequest, res, next) => {
   if (ottoSecret) {
     if (ottoSecret !== repo.webhookSecret) return res.status(401).json({ error: "Invalid webhook secret" });
   } else if (bearerToken) {
-    try {
-      const payload = jwt.verify(bearerToken, config.jwtSecret) as { sub: string };
-      if (String(repo.owner) !== payload.sub) return res.status(403).json({ error: "Not your repo" });
-    } catch {
-      return res.status(401).json({ error: "Invalid token" });
+    if (bearerToken === repo.webhookSecret) {
+      // Authenticated via repo webhook secret
+    } else {
+      try {
+        const payload = jwt.verify(bearerToken, config.jwtSecret) as { sub: string };
+        if (String(repo.owner) !== payload.sub) return res.status(403).json({ error: "Not your repo" });
+      } catch {
+        return res.status(401).json({ error: "Invalid token or secret" });
+      }
     }
   } else {
     return res.status(401).json({ error: "Missing authentication" });
