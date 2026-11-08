@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   description: "Security findings and scan activity across your code and network.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"

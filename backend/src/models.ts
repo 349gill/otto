@@ -3,8 +3,12 @@ import mongoose, { Schema, Types } from "mongoose";
 // ---------- User ----------
 const userSchema = new Schema(
   {
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    passwordHash: { type: String, required: true },
+    email: { type: String, lowercase: true, trim: true, unique: true, sparse: true },
+    passwordHash: { type: String, default: "" },
+    githubId: { type: Number, unique: true, sparse: true },
+    githubLogin: { type: String, default: "" },
+    githubToken: { type: String, default: "" },
+    avatarUrl: { type: String, default: "" },
   },
   { timestamps: true }
 );
@@ -12,7 +16,7 @@ export const User = mongoose.model("User", userSchema);
 
 // ---------- Repo ----------
 // One document per connected repo. `context` is the context file made at /setup
-// and reused as background for every pen-test run.
+// and reused as background for every scan.
 const repoSchema = new Schema(
   {
     owner: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
@@ -22,6 +26,10 @@ const repoSchema = new Schema(
     context: { type: String, default: "" },
     fileCount: { type: Number, default: 0 },
     lastScannedCommit: { type: String, default: null },
+    githubFullName: { type: String, default: "" },
+    githubId: { type: Number, sparse: true },
+    webhookSecret: { type: String, default: "" },
+    defaultBranch: { type: String, default: "main" },
   },
   { timestamps: true }
 );
@@ -29,16 +37,19 @@ repoSchema.index({ owner: 1, url: 1 }, { unique: true });
 export const Repo = mongoose.model("Repo", repoSchema);
 
 // ---------- Scan ----------
-// One document per /pen-test run. Findings are embedded because they are
+// One document per scan run. Findings are embedded because they are
 // always read together with their scan. counts are stored so the 30-day graph
 // is a cheap aggregation instead of unwinding every finding.
 const findingSchema = new Schema(
   {
     file: { type: String, required: true },
     line: { type: Number, default: 0 },
-    severity: { type: String, enum: ["severe", "minor"], required: true },
+    severity: { type: String, enum: ["serious", "minor", "info"], required: true },
+    title: { type: String, default: "" },
     comment: { type: String, required: true },
     fix: { type: String, default: "" },
+    ruleId: { type: String, default: "" },
+    source: { type: String, enum: ["deterministic", "ai"], default: "deterministic" },
   },
   { _id: false }
 );
@@ -50,11 +61,14 @@ const scanSchema = new Schema(
     status: { type: String, enum: ["pass", "fail", "error"], required: true },
     findings: { type: [findingSchema], default: [] },
     counts: {
-      severe: { type: Number, default: 0 },
+      serious: { type: Number, default: 0 },
       minor: { type: Number, default: 0 },
+      info: { type: Number, default: 0 },
     },
-    script: { type: String, default: "" }, // the Gemini pen-test script that ran
-    logs: { type: String, default: "" }, // script output (or error details)
+    prNumber: { type: Number, default: null },
+    ref: { type: String, default: "" },
+    script: { type: String, default: "" },
+    logs: { type: String, default: "" },
   },
   { timestamps: true }
 );
@@ -65,8 +79,11 @@ export type RepoDoc = mongoose.HydratedDocument<mongoose.InferSchemaType<typeof 
 export type Finding = {
   file: string;
   line: number;
-  severity: "severe" | "minor";
+  severity: "serious" | "minor" | "info";
+  title: string;
   comment: string;
   fix: string;
+  ruleId: string;
+  source: "deterministic" | "ai";
 };
 export const oid = (s: string) => (Types.ObjectId.isValid(s) ? new Types.ObjectId(s) : null);

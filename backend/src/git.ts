@@ -25,13 +25,23 @@ export function isValidRepoUrl(url: string): boolean {
   return REPO_URL.test(url);
 }
 
-export async function cloneRepo(url: string, branch?: string): Promise<{ dir: string; head: string }> {
+export async function cloneRepo(url: string, branch?: string, token?: string): Promise<{ dir: string; head: string }> {
   const dir = await mkdtemp(path.join(tmpdir(), "otto-"));
   const args = ["clone", "--depth", "50", "--no-tags"];
   if (branch && branch !== "HEAD" && /^[\w./-]+$/.test(branch)) args.push("--branch", branch);
-  args.push(url, dir);
+
+  let targetUrl = url;
+  if (token && url.startsWith("https://github.com/")) {
+    const repoPath = url.replace("https://github.com/", "");
+    targetUrl = `https://x-access-token:${token}@github.com/${repoPath}`;
+  }
+
+  args.push(targetUrl, dir);
   const r = await exec("git", args, { timeout: 120_000 });
-  if (r.code !== 0) throw new Error(`git clone failed: ${r.out.slice(0, 500)}`);
+  if (r.code !== 0) {
+    const safeError = token ? r.out.split(token).join("[REDACTED]").slice(0, 500) : r.out.slice(0, 500);
+    throw new Error(`git clone failed: ${safeError}`);
+  }
   const head = (await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).out.trim();
   return { dir, head };
 }
