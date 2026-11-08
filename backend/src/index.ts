@@ -8,6 +8,7 @@ import { rm } from "node:fs/promises";
 import { config } from "./config.js";
 import { Repo, Scan, User, oid, type Finding } from "./models.js";
 import { gemini, scanWithGemini } from "./gemini.js";
+import { scanExposure } from "./exposure.js";
 import { cloneRepo, getDiff, readSource, exec } from "./git.js";
 import { exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment } from "./github.js";
 
@@ -414,6 +415,17 @@ async function performScan(
     } else {
       console.warn(`[Otto Scan] Warning: GEMINI_API_KEY is not configured.`);
     }
+
+    // 4b. Deterministic port-exposure scan (no Gemini, no Docker) — flags backing
+    //     services (redis, mongo, ...) bound to all interfaces or published to the host.
+    const exposureFindings = scanExposure(files);
+    if (exposureFindings.length) {
+      console.log(`[Otto Scan] Port-exposure check flagged ${exposureFindings.length} finding(s):`);
+      for (const f of exposureFindings) {
+        console.log(`  - [${f.ruleId}] ${f.title} (${f.severity}) in ${f.file}:${f.line}`);
+      }
+    }
+    rawFindings = [...rawFindings, ...exposureFindings];
 
     // 5. Deduplicate findings
     const allFindings = deduplicateFindings(rawFindings);

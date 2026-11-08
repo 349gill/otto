@@ -125,6 +125,7 @@ export default function ConnectedPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [search, setSearch] = useState("");
+  const [findingFilter, setFindingFilter] = useState<"all" | "vuln" | "port">("all");
 
   // Connect repository modal
   const [setupOpen, setSetupOpen] = useState(false);
@@ -283,11 +284,19 @@ export default function ConnectedPage() {
     })
     .sort((left, right) => new Date(right.scannedAt).getTime() - new Date(left.scannedAt).getTime());
 
-  const visibleFindings = allFindings.filter((finding) =>
-    `${finding.title} ${finding.comment} ${finding.file} ${finding.fix} ${finding.ruleId} ${finding.repoName}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
+  const isPortFinding = (finding: DisplayFinding) => (finding.ruleId ?? "").toUpperCase().startsWith("PORT");
+  const portFindings = allFindings.filter(isPortFinding);
+  const vulnFindings = allFindings.filter((finding) => !isPortFinding(finding));
+
+  const visibleFindings = allFindings
+    .filter((finding) =>
+      findingFilter === "all" ? true : findingFilter === "port" ? isPortFinding(finding) : !isPortFinding(finding),
+    )
+    .filter((finding) =>
+      `${finding.title} ${finding.comment} ${finding.file} ${finding.fix} ${finding.ruleId} ${finding.repoName}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+    );
 
   function handleGitHubLogin() {
     window.location.href = getGitHubAuthUrl();
@@ -445,10 +454,33 @@ export default function ConnectedPage() {
           </button>
           <button
             className="nav-item"
-            onClick={() => document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" })}
+            onClick={() => {
+              setFindingFilter("all");
+              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
+            }}
           >
             <span className="nav-glyph">⌕</span> Findings{" "}
             <span className="nav-count">{allFindings.length}</span>
+          </button>
+          <button
+            className={`nav-item${findingFilter === "vuln" ? " active" : ""}`}
+            onClick={() => {
+              setFindingFilter("vuln");
+              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
+            }}
+          >
+            <span className="nav-glyph">⚠</span> Vulnerability scan{" "}
+            <span className="nav-count">{vulnFindings.length}</span>
+          </button>
+          <button
+            className={`nav-item${findingFilter === "port" ? " active" : ""}`}
+            onClick={() => {
+              setFindingFilter("port");
+              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
+            }}
+          >
+            <span className="nav-glyph">⇄</span> Port scan{" "}
+            <span className="nav-count">{portFindings.length}</span>
           </button>
           <button
             className="nav-item"
