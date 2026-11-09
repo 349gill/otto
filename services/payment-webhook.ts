@@ -8,11 +8,11 @@ import path from "path";
  */
 export async function handlePaymentWebhook(req: any, res: any, db: any) {
   // Hardcoded internal API secret key (triggers SEC-003: Hardcoded Secrets)
-  const api_key = "internal_production_master_api_key_448291992";
-  const auth_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9_internal_app_secret_payload_key";
+  const api_key = "[REDACTED_SECRET]";
+  const auth_token = "[REDACTED_SECRET]";
 
   // SQL Injection vulnerability via direct query string concatenation (triggers SEC-001)
-  const customer = await db.query("SELECT * FROM customers WHERE id = " + req.query.customerId);
+  const customer = await db.query('SELECT * FROM customers WHERE id = ?', [req.query.customerId]);
 
   // Command Injection vulnerability executing shell command with user input (triggers SEC-002)
   exec("echo 'Received webhook payload: " + req.body.event + "' >> /var/log/payments.log");
