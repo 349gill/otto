@@ -196,10 +196,9 @@ function renderMarkdown(md: string): ReactNode[] {
 
 export default function DocsView() {
   const [content, setContent] = useState(FALLBACK_DOCS);
-  const [viewMode, setViewMode] = useState<"rendered" | "raw">("rendered");
 
   useEffect(() => {
-    fetch("/docs.md")
+    fetch("/README.md")
       .then((res) => {
         if (res.ok) return res.text();
         return FALLBACK_DOCS;
@@ -213,32 +212,11 @@ export default function DocsView() {
       <section className="page-heading" id="docs">
         <div>
           <h1>Documentation</h1>
-          <p className="page-sub">CLI guide, CI integration, and service overview</p>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <button
-            type="button"
-            className="scan-trigger"
-            onClick={() => setViewMode(viewMode === "rendered" ? "raw" : "rendered")}
-          >
-            {viewMode === "rendered" ? "View raw markdown" : "View formatted"}
-          </button>
         </div>
       </section>
 
       <div className="panel docs-panel">
-        <div style={{ marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", color: "var(--muted)" }}>
-          <span>docs.md</span>
-          <span>Editable in /public/docs.md or docs.md</span>
-        </div>
-
-        {viewMode === "rendered" ? (
-          <article className="docs-content">{renderMarkdown(content)}</article>
-        ) : (
-          <pre className="docs-raw" style={{ whiteSpace: "pre-wrap", margin: 0, padding: "12px", background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "4px", fontSize: "11px", color: "var(--ink)", fontFamily: "var(--font-geist-mono), monospace" }}>
-            <code>{content}</code>
-          </pre>
-        )}
+        <article className="docs-content">{renderMarkdown(content)}</article>
       </div>
     </>
   );
