@@ -31,7 +31,7 @@ app.use(
 );
 app.use(express.json({ limit: "100kb" }));
 
-// ---------- rate limiters ----------
+// Rate limiters for auth endpoints and resource-heavy operations.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
@@ -43,7 +43,7 @@ const heavyLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
 });
 
-// ---------- auth middleware ----------
+// Verify JWT bearer token.
 function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace(/^Bearer /, "");
   if (!token) return res.status(401).json({ error: "Missing token" });
@@ -55,7 +55,7 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   }
 }
 
-// ---------- 1. GET /auth/github  (start OAuth) ----------
+// Redirect to GitHub OAuth flow.
 app.get("/auth/github", (_req, res) => {
   if (!config.githubClientId) return res.status(501).json({ error: "GitHub OAuth not configured" });
   const callbackUrl = `${config.backendUrl}/auth/github/callback`;
@@ -72,7 +72,7 @@ app.get("/auth/github", (_req, res) => {
   res.redirect(target);
 });
 
-// ---------- 3. GET /auth/github/callback  (exchange code) ----------
+// Complete GitHub OAuth exchange.
 app.get("/auth/github/callback", authLimiter, async (req, res) => {
   const code = String(req.query.code ?? "");
   if (!code) return res.status(400).json({ error: "Missing code" });
@@ -126,7 +126,6 @@ app.get("/auth/github/callback", authLimiter, async (req, res) => {
   }
 });
 
-// ---------- POST /auth/signout ----------
 app.post("/auth/signout", requireAuth, async (req: AuthedRequest, res) => {
   const user = await User.findById(req.userId);
   if (user) {
@@ -136,7 +135,6 @@ app.post("/auth/signout", requireAuth, async (req: AuthedRequest, res) => {
   res.json({ ok: true });
 });
 
-// ---------- 4. GET /repos  (list connected repos) ----------
 app.get("/repos", requireAuth, async (req: AuthedRequest, res) => {
   const repos = await Repo.find({ owner: req.userId }).sort({ updatedAt: -1 }).select("-context");
   const items = await Promise.all(
@@ -154,7 +152,6 @@ app.get("/repos", requireAuth, async (req: AuthedRequest, res) => {
   res.json({ repos: items });
 });
 
-// ---------- 5. GET /repos/github  (list user's GitHub repos) ----------
 app.get("/repos/github", requireAuth, async (req: AuthedRequest, res) => {
   const user = await User.findById(req.userId);
   if (!user?.githubToken) return res.status(400).json({ error: "No GitHub account linked. Sign in with GitHub first." });
@@ -171,7 +168,6 @@ app.get("/repos/github", requireAuth, async (req: AuthedRequest, res) => {
   res.json({ repos: items });
 });
 
-// ---------- 6. POST /repos/connect  (connect a GitHub repo) ----------
 app.post("/repos/connect", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
   const fullName = String(req.body?.fullName ?? "").trim();
   if (!fullName || !fullName.includes("/")) return res.status(400).json({ error: "fullName is required (owner/repo)" });
@@ -225,7 +221,6 @@ ${sourceDump}`);
   }
 });
 
-// ---------- 7. DELETE /repos/:id  (disconnect) ----------
 app.delete("/repos/:id", requireAuth, async (req: AuthedRequest, res) => {
   const id = oid(req.params.id as string);
   const repo = id && (await Repo.findOneAndDelete({ _id: id, owner: req.userId }));
@@ -234,7 +229,6 @@ app.delete("/repos/:id", requireAuth, async (req: AuthedRequest, res) => {
   res.json({ ok: true });
 });
 
-// ---------- 8. GET /repos/:id  (repo detail + 30 day graph) ----------
 app.get("/repos/:id", requireAuth, async (req: AuthedRequest, res) => {
   const id = oid(req.params.id as string);
   const repo = id && (await Repo.findOne({ _id: id, owner: req.userId }).select("-context"));
@@ -275,9 +269,8 @@ app.get("/repos/:id", requireAuth, async (req: AuthedRequest, res) => {
   });
 });
 
-// ---------- 9. POST /scan  (webhook from GitHub Actions or GitHub Webhooks) ----------
+// Triggered by CI actions or incoming GitHub webhooks.
 app.post("/scan", async (req: AuthedRequest, res, next) => {
-  // Handle GitHub Webhook ping
   if (req.headers["x-github-event"] === "ping") {
     console.log("[Otto API] Received GitHub webhook ping");
     return res.json({ ok: true, message: "pong" });
@@ -349,7 +342,6 @@ app.post("/scan", async (req: AuthedRequest, res, next) => {
   }
 });
 
-// ---------- 10. POST /repos/:id/scan  (manual scan from dashboard) ----------
 const running = new Set<string>();
 app.post("/repos/:id/scan", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
   const id = oid(req.params.id as string);
@@ -367,7 +359,6 @@ app.post("/repos/:id/scan", requireAuth, heavyLimiter, async (req: AuthedRequest
   }
 });
 
-// ---------- Target scans: live port scan + API spec test (ad-hoc, not tied to a repo) ----------
 app.post("/target/port-scan", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
   try {
     const host = String(req.body?.host ?? "").trim();
@@ -395,7 +386,7 @@ app.post("/target/api-scan", requireAuth, heavyLimiter, async (req: AuthedReques
   }
 });
 
-// ---------- 11. POST /setup  (legacy: ingest code + store context) ----------
+// Ingest code and generate repository architecture context.
 app.post("/setup", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
   const url = String(req.body?.url ?? "").trim();
   const branch = String(req.body?.branch ?? "HEAD");
@@ -436,7 +427,7 @@ ${sourceDump}`);
   }
 });
 
-// ---------- core scan logic ----------
+// Core scan pipeline orchestrating clone, static analysis, exposure check, and PR notification.
 async function performScan(
   repo: any,
   commitSha: string | null,
@@ -492,8 +483,7 @@ async function performScan(
       console.warn(`[Otto Scan] Warning: GEMINI_API_KEY is not configured.`);
     }
 
-    // 4b. Deterministic port-exposure scan (no Gemini, no Docker) — flags backing
-    //     services (redis, mongo, ...) bound to all interfaces or published to the host.
+    // Static port-exposure check flagging backing services bound to all interfaces.
     const exposureFindings = scanExposure(files);
     if (exposureFindings.length) {
       console.log(`[Otto Scan] Port-exposure check flagged ${exposureFindings.length} finding(s):`);
@@ -617,7 +607,7 @@ function formatPRComment(findings: Finding[], commit: string, counts: { serious:
   // Suggested fixes
   const withFixes = findings.filter((f) => f.fix);
   if (withFixes.length > 0) {
-    lines.push("<details><summary>💡 Suggested Fixes</summary>\n");
+    lines.push("<details><summary>Suggested Fixes</summary>\n");
     for (const f of withFixes) {
       lines.push(`**${f.file}${f.line ? `:${f.line}` : ""}** (${f.ruleId})`);
       lines.push(`> ${f.fix}\n`);
@@ -626,11 +616,10 @@ function formatPRComment(findings: Finding[], commit: string, counts: { serious:
   }
 
   lines.push("---");
-  lines.push("*Otto Security · Findings are advisory — review before acting.*");
+  lines.push("*Otto Security · Findings are advisory: review before acting.*");
   return lines.join("\n");
 }
 
-// ---------- POST /repos/:id/apply-fix  (create PR with AI-applied fix) ----------
 app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
   const id = oid(req.params.id as string);
   const repo = id && (await Repo.findOne({ _id: id, owner: req.userId }));
@@ -724,7 +713,6 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
   res.json({ pullRequests });
 });
 
-// ---------- error handler ----------
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error(err);
   res.status(500).json({ error: err.message });

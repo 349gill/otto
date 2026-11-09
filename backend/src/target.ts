@@ -1,7 +1,7 @@
 import { exec } from "./git.js";
 import type { Finding } from "./models.js";
 
-// Sensitive backing services — an open one of these is a serious finding.
+// Backing services considered sensitive when open to external traffic.
 const SENSITIVE: Record<number, string> = {
   22: "ssh", 23: "telnet", 2375: "docker-api", 2376: "docker-api-tls",
   3306: "mysql", 5432: "postgres", 5984: "couchdb", 6379: "redis",
@@ -11,16 +11,12 @@ const SENSITIVE: Record<number, string> = {
 
 export type TargetScanResult = { findings: Finding[]; summary: string };
 
-// ---- validation -------------------------------------------------------------
-
-const HOST_RE = /^[a-zA-Z0-9.-]{1,253}$/;        // hostname or IPv4/dotted
-const PRIVATE_OK = true;                          // allow private/lab targets
+const HOST_RE = /^[a-zA-Z0-9.-]{1,253}$/;
+const PRIVATE_OK = true;
 
 export function validHost(host: string): boolean {
   return HOST_RE.test(host) && !host.includes("..");
 }
-
-// ---- live port scan ---------------------------------------------------------
 
 function parseGreppable(out: string): { port: number; service: string }[] {
   const open: { port: number; service: string }[] = [];
@@ -35,8 +31,8 @@ function parseGreppable(out: string): { port: number; service: string }[] {
 
 /**
  * Run a real TCP connect scan against a host/IP using nmap in a throwaway
- * container. ONLY runs when `authorized` is true — scanning a host you do not
- * own or have permission to test is illegal.
+ * container. Runs only when authorized is true; scanning a host without
+ * permission is unauthorized.
  */
 export async function portScanTarget(host: string, authorized: boolean): Promise<TargetScanResult> {
   if (!authorized) throw new Error("Not authorized: confirm you own or may test this target.");
@@ -82,11 +78,8 @@ export async function portScanTarget(host: string, authorized: boolean): Promise
   return { findings, summary };
 }
 
-// ---- API spec testing -------------------------------------------------------
-
 type SpecOp = { method: string; path: string; secured: boolean };
 
-/** Enumerate operations from an OpenAPI 3 / Swagger 2 JSON document. */
 function enumerateOps(spec: any): { ops: SpecOp[]; serverUrl: string } {
   const ops: SpecOp[] = [];
   const globalSecured = Array.isArray(spec.security) && spec.security.length > 0;
@@ -154,7 +147,7 @@ export async function apiSpecScan(baseUrlIn: string, specText: string, authorize
         line: 0,
         severity: "serious",
         title: "Authentication not enforced",
-        comment: `${op.method} ${op.path} declares a security requirement in the spec but returned ${status} with no credentials — auth is not enforced.`,
+        comment: `${op.method} ${op.path} declares a security requirement in the spec but returned ${status} with no credentials: auth is not enforced.`,
         fix: "Enforce the declared authentication/authorization on this endpoint server-side.",
         ruleId: "API-001",
         source: "deterministic",
@@ -173,7 +166,7 @@ export async function apiSpecScan(baseUrlIn: string, specText: string, authorize
         line: 0,
         severity: "serious",
         title: `Shadow / sensitive path reachable (${p})`,
-        comment: `${p} is reachable (HTTP ${status}) but is not part of the API spec — a likely unintended or sensitive exposure.`,
+        comment: `${p} is reachable (HTTP ${status}) but is not part of the API spec: an unexpected or sensitive exposure.`,
         fix: `Remove or protect ${p}; it should not be publicly reachable.`,
         ruleId: "API-002",
         source: "deterministic",

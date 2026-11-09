@@ -1,4 +1,4 @@
-// GitHub API helpers — all calls go to https://api.github.com with proper headers.
+// GitHub REST API client using standard headers and authentication.
 
 const API = "https://api.github.com";
 

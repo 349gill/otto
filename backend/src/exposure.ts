@@ -41,7 +41,7 @@ function finding(
  *
  * Reads Dockerfiles, docker-compose files and *.conf files and flags backing
  * services (redis, mongo, postgres, ...) that are bound to all interfaces or
- * published to the host — i.e. reachable alongside the app when they should be
+ * published to the host (reachable alongside the app when they should be
  * private. This is the static counterpart to a live port scan: it needs no
  * running container, so it fits straight into the deterministic scan flow.
  */
@@ -70,7 +70,7 @@ export function scanExposure(files: { path: string; content: string }[]): Findin
             "serious",
             "PORT-001",
             `Service bound to all interfaces (${svc})`,
-            `This binds ${svc} to 0.0.0.0, so it listens on every network interface and is reachable from outside its container/host — a backing service should stay private.`,
+            `This binds ${svc} to 0.0.0.0, so it listens on every network interface and is reachable from outside its container/host: a backing service should stay private.`,
             `Bind it to 127.0.0.1 instead, or keep it on an internal-only network and reach it privately from the app.`
           )
         );

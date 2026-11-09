@@ -82,9 +82,7 @@ export function stripFences(text: string): string {
   return text.replace(/^```[a-z]*\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
 }
 
-// ---------------------------------------------------------------------------
-// High-Sensitivity AI Vulnerability Scanner
-// ---------------------------------------------------------------------------
+// LLM vulnerability scanner using prioritized codebase context.
 
 /**
  * High-sensitivity AI vulnerability scanner:

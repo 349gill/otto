@@ -1,9 +1,5 @@
 import type { Finding } from "./models.js";
 
-// ---------------------------------------------------------------------------
-// Rule type
-// ---------------------------------------------------------------------------
-
 type ScanRule = {
   id: string;
   severity: "serious" | "minor" | "info";
@@ -12,9 +8,7 @@ type ScanRule = {
   detect: (content: string, filePath: string) => { line: number; evidence: string }[];
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// Pattern matching helpers.
 
 /** Check each line of `content` against a regex. */
 function matchLines(
@@ -51,12 +45,7 @@ function isTestFile(filePath: string): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Rules
-// ---------------------------------------------------------------------------
-
 const rules: ScanRule[] = [
-  // ---- SERIOUS ----
   {
     id: "SEC-001",
     severity: "serious",
@@ -136,7 +125,6 @@ const rules: ScanRule[] = [
     },
   },
 
-  // ---- MINOR ----
   {
     id: "SEC-006",
     severity: "minor",
@@ -271,14 +259,7 @@ const rules: ScanRule[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Run the deterministic vulnerability scanner against a set of source files.
- * Returns an array of Finding objects.
- */
+// Run deterministic vulnerability rules against provided source files.
 export function scanCode(files: { path: string; content: string }[]): Finding[] {
   const findings: Finding[] = [];
   const seen = new Set<string>();
@@ -307,10 +288,6 @@ export function scanCode(files: { path: string; content: string }[]): Finding[] 
 
   return findings;
 }
-
-// ---------------------------------------------------------------------------
-// Fix suggestions per rule
-// ---------------------------------------------------------------------------
 
 function getFix(ruleId: string): string {
   const fixes: Record<string, string> = {
