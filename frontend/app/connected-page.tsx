@@ -22,6 +22,118 @@ type WorkspaceData = {
   details: Record<string, ApiRepoDetail>;
 };
 
+function createPreviewWorkspace(): WorkspaceData {
+  const now = new Date();
+  const dates = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(now.getTime() - (13 - index) * 24 * 60 * 60 * 1000);
+    return date.toISOString().slice(0, 10);
+  });
+  const scanAt = now.toISOString();
+  const repos: ApiRepo[] = [
+    {
+      id: "preview-storefront",
+      name: "storefront-api",
+      url: "https://github.com/acme/storefront-api",
+      githubFullName: "acme/storefront-api",
+      lastScan: { status: "fail", counts: { serious: 2, minor: 4 }, at: scanAt },
+    },
+    {
+      id: "preview-billing",
+      name: "billing-worker",
+      url: "https://github.com/acme/billing-worker",
+      githubFullName: "acme/billing-worker",
+      lastScan: { status: "pass", counts: { serious: 0, minor: 0 }, at: scanAt },
+    },
+  ];
+  const historyFor = (serious: number[], minor: number[]): ScanHistoryPoint[] =>
+    dates.map((date, index) => ({
+      date,
+      serious: serious[index],
+      minor: minor[index],
+      scans: index % 4 === 0 ? 2 : 1,
+    }));
+  const finding: ApiFinding = {
+    file: "src/auth/session.ts",
+    line: 42,
+    severity: "serious",
+    title: "Session token is not rotated",
+    comment: "A reused token can remain valid longer than intended.",
+    fix: "Rotate the session token after privilege changes.",
+    ruleId: "AUTH-014",
+    source: "deterministic",
+  };
+
+  return {
+    repos,
+    details: {
+      "preview-storefront": {
+        repo: {
+          id: repos[0].id,
+          name: repos[0].name,
+          url: repos[0].url,
+          branch: "main",
+          githubFullName: repos[0].githubFullName,
+          lastScannedCommit: "a1b2c3d4e5f6",
+        },
+        current: {
+          status: "fail",
+          counts: { serious: 2, minor: 4 },
+          findings: [
+            finding,
+            {
+              ...finding,
+              file: "src/routes/orders.ts",
+              line: 118,
+              title: "Missing order ownership check",
+              comment: "Order access should verify that the authenticated user owns the requested order.",
+              fix: "Check the order owner before returning its data.",
+              ruleId: "AUTHZ-003",
+              source: "ai",
+            },
+            {
+              ...finding,
+              file: "src/config.ts",
+              line: 27,
+              severity: "minor",
+              title: "Verbose error detail returned",
+              comment: "Error responses may reveal implementation details.",
+              fix: "Return a generic client error and log details server-side.",
+              ruleId: "ERR-006",
+            },
+          ],
+          scannedAt: scanAt,
+          commit: "a1b2c3d4e5f6",
+        },
+        history: historyFor(
+          [1, 2, 2, 3, 2, 2, 1, 2, 3, 2, 1, 2, 2, 2],
+          [4, 3, 4, 5, 4, 6, 5, 4, 3, 4, 5, 4, 4, 4],
+        ),
+      },
+      "preview-billing": {
+        repo: {
+          id: repos[1].id,
+          name: repos[1].name,
+          url: repos[1].url,
+          branch: "main",
+          githubFullName: repos[1].githubFullName,
+          lastScannedCommit: "f6e5d4c3b2a1",
+        },
+        current: {
+          status: "pass",
+          counts: { serious: 0, minor: 0 },
+          findings: [],
+          scannedAt: scanAt,
+          commit: "f6e5d4c3b2a1",
+        },
+        history: historyFor(
+          [0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          [1, 2, 2, 2, 1, 2, 1, 1, 2, 1, 1, 1, 0, 0],
+        ),
+      },
+    },
+  };
+}
+
 type DisplayFinding = ApiFinding & {
   key: string;
   repoId: string;
@@ -72,6 +184,23 @@ function makeChartPoints(values: number[], maximum: number) {
     .join(" ");
 }
 
+function makeChartBand(values: number[], maximum: number) {
+  const width = 640;
+  const height = 220;
+  const padding = 16;
+  const upper = values.map((value, index) => {
+    const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
+    const y = height - padding - (value / maximum) * (height - padding * 2);
+    return `${x},${y}`;
+  });
+  const lower = values.map((value, index) => {
+    const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
+    const y = height - padding - (value / maximum) * (height - padding * 2);
+    return `${x},${Math.min(height - padding, y + 12)}`;
+  }).reverse();
+  return [...upper, ...lower].join(" ");
+}
+
 function displayDate(value?: string | null) {
   if (!value) return "Not yet scanned";
   const date = new Date(value);
@@ -87,6 +216,7 @@ export default function ConnectedPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [scanSuccess, setScanSuccess] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
 
   const [timelineDates, setTimelineDates] = useState<string[]>([]);
 
@@ -141,6 +271,23 @@ export default function ConnectedPage() {
   // Initialize Auth
   useEffect(() => {
     let active = true;
+
+    const isPreview = process.env.NODE_ENV === "development"
+      && new URLSearchParams(window.location.search).get("preview") === "1";
+    if (isPreview) {
+      Promise.resolve().then(() => {
+        if (!active) return;
+        setPreviewMode(true);
+        setToken("preview");
+        setUserEmail("demo@example.com");
+        setUserName("Demo workspace");
+        setWorkspace(createPreviewWorkspace());
+        setAuthReady(true);
+      });
+      return () => {
+        active = false;
+      };
+    }
 
     // Check hash for OAuth token redirect
     const hash = window.location.hash.slice(1);
@@ -266,8 +413,10 @@ export default function ConnectedPage() {
   const chartHistory = [...timelineMap.values()].sort((left, right) => left.date.localeCompare(right.date));
   const rawMax = Math.max(0, ...chartHistory.flatMap((point) => [point.serious, point.minor]));
   const chartMaximum = Math.max(4, rawMax);
-  const seriousLine = makeChartPoints(chartHistory.map((point) => point.serious), chartMaximum);
+  const severeLine = makeChartPoints(chartHistory.map((point) => point.serious), chartMaximum);
   const minorLine = makeChartPoints(chartHistory.map((point) => point.minor), chartMaximum);
+  const severeBand = makeChartBand(chartHistory.map((point) => point.serious), chartMaximum);
+  const minorBand = makeChartBand(chartHistory.map((point) => point.minor), chartMaximum);
 
   const allFindings: DisplayFinding[] = scopedRepos
     .flatMap((repo) => {
@@ -366,9 +515,14 @@ export default function ConnectedPage() {
 
   if (!authReady) {
     return (
-      <div className="auth-loading">
-        <OttoLogo className="h-6 w-auto" />
-        <span>Loading Otto</span>
+      <div className="auth-loading" role="status" aria-live="polite">
+        <span className="auth-spinner" aria-hidden="true" />
+        <span className="auth-loading-label">
+          Loading Otto
+          <span className="auth-loading-dots" aria-hidden="true">
+            <span>.</span><span>.</span><span>.</span>
+          </span>
+        </span>
       </div>
     );
   }
@@ -401,6 +555,9 @@ export default function ConnectedPage() {
               style={{ width: "100%", height: "46px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
               onClick={handleGitHubLogin}
             >
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577v-2.234c-3.338.726-4.043-1.416-4.043-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.729.083-.729 1.205.084 1.84 1.237 1.84 1.237 1.07 1.834 2.807 1.304 3.492.997.108-.775.418-1.305.762-1.605-2.665-.304-5.466-1.333-5.466-5.93 0-1.31.468-2.381 1.236-3.221-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.552 3.297-1.23 3.297-1.23.655 1.652.243 2.873.12 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.804 5.624-5.475 5.921.43.372.814 1.102.814 2.222v3.293c0 .319.216.694.825.576C20.565 22.092 24 17.597 24 12.297c0-6.627-5.373-12-12-12" />
+              </svg>
               Sign in with GitHub
             </button>
 
@@ -503,7 +660,7 @@ export default function ConnectedPage() {
 
         <div className="sidebar-bottom">
           <div className="connection-state">
-            <span className="connection-dot" /> API connected
+            <span className="connection-dot" /> {previewMode ? "Demo preview data" : "API connected"}
           </div>
           <button className="profile-button" onClick={handleSignOut}>
             {userAvatar ? (
@@ -704,10 +861,10 @@ export default function ConnectedPage() {
 
               <div className="chart-legend">
                 <span>
-                  <i className="legend-dot opened-dot" /> Serious
+                  <i className="legend-dot severe-dot" /> Severe
                 </span>
                 <span>
-                  <i className="legend-dot resolved-dot" /> Minor
+                  <i className="legend-dot minor-dot" /> Minor
                 </span>
                 <span className="chart-target">{selectedName}</span>
               </div>
@@ -728,27 +885,29 @@ export default function ConnectedPage() {
                       role="img"
                       aria-label={`Vulnerabilities over 30 days for ${selectedName}`}
                     >
+                      <polygon points={minorBand} className="chart-area minor-area" />
+                      <polygon points={severeBand} className="chart-area severe-area" />
                       {[16, 78.7, 141.3, 204].map((y) => (
-                        <line key={y} x1="16" y1={y} x2="624" y2={y} className="chart-gridline" />
+                        <line key={`grid-${y}`} x1="16" y1={y} x2="624" y2={y} className="chart-gridline" />
                       ))}
-                      <polyline points={seriousLine} className="chart-line opened-line" />
-                      <polyline points={minorLine} className="chart-line resolved-line" />
+                      <polyline points={severeLine} pathLength="1" className="chart-line severe-line" />
+                      <polyline points={minorLine} pathLength="1" className="chart-line minor-line" />
                       {chartHistory.map((point, index) => {
                         const width = 640;
                         const height = 220;
                         const padding = 16;
                         const x = padding + (index * (width - padding * 2)) / Math.max(chartHistory.length - 1, 1);
-                        const ySerious = height - padding - (point.serious / chartMaximum) * (height - padding * 2);
+                        const ySevere = height - padding - (point.serious / chartMaximum) * (height - padding * 2);
                         const yMinor = height - padding - (point.minor / chartMaximum) * (height - padding * 2);
                         return (
                           <g key={point.date}>
                             {point.serious > 0 && (
-                              <circle cx={x} cy={ySerious} r="4.5" fill="var(--ink)" stroke="var(--surface)" strokeWidth="2">
-                                <title>{`${point.date}: ${point.serious} serious vulnerability${point.serious > 1 ? "s" : ""}`}</title>
+                              <circle cx={x} cy={ySevere} r="4.5" className="chart-point severe-point" stroke="var(--surface)" strokeWidth="2">
+                                <title>{`${point.date}: ${point.serious} severe vulnerability${point.serious > 1 ? "s" : ""}`}</title>
                               </circle>
                             )}
                             {point.minor > 0 && (
-                              <circle cx={x} cy={yMinor} r="4" fill="var(--muted)" stroke="var(--surface)" strokeWidth="1.5">
+                              <circle cx={x} cy={yMinor} r="4" className="chart-point minor-point" stroke="var(--surface)" strokeWidth="1.5">
                                 <title>{`${point.date}: ${point.minor} minor vulnerability${point.minor > 1 ? "s" : ""}`}</title>
                               </circle>
                             )}
