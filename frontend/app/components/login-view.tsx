@@ -22,15 +22,12 @@ export default function LoginView({
           onClick={onToggleTheme}
           aria-pressed={theme === "dark"}
           aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+          title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
         >
           {theme === "light" ? (
-            <>
-              <MoonIcon className="w-3.5 h-3.5" /> Dark
-            </>
+            <MoonIcon className="w-3.5 h-3.5" />
           ) : (
-            <>
-              <SunIcon className="w-3.5 h-3.5" /> Light
-            </>
+            <SunIcon className="w-3.5 h-3.5" />
           )}
         </button>
         <div className="auth-panel">

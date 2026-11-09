@@ -218,9 +218,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .crumb-slash { color: var(--subtle); }
 .topbar-actions { display: flex; align-items: center; gap: 16px; }
 .demo-label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.05em; }
-.theme-toggle { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--ink); cursor: pointer; font-size: 10px; }
+.theme-toggle { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--ink); cursor: pointer; transition: all 120ms ease; }
 .theme-toggle:hover { border-color: var(--border-strong); background: var(--surface-raised); }
-.theme-symbol { font-size: 13px; }
+.theme-symbol { display: grid; place-items: center; }
 .avatar-button { width: 26px; height: 26px; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--surface-raised); color: var(--ink); cursor: pointer; font-size: 10px; font-weight: 700; }
 
 .page-content { width: min(100%, 1400px); margin: 0 auto; padding: 28px 36px 32px; }
@@ -407,7 +407,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 .auth-screen { display: grid; place-items: center; min-height: 100vh; background: var(--page); color: var(--ink); }
 .auth-main { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 100vh; padding: 40px 24px; }
-.auth-theme-toggle { position: absolute; top: 20px; right: 24px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--ink); cursor: pointer; font-size: 10px; }
+.auth-theme-toggle { position: absolute; top: 20px; right: 24px; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--ink); cursor: pointer; transition: all 120ms ease; }
+.auth-theme-toggle:hover { border-color: var(--border-strong); background: var(--surface-raised); }
 .auth-panel { width: min(100%, 340px); display: flex; flex-direction: column; text-align: center; }
 .github-connect { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 42px; border: 1px solid var(--ink); border-radius: 5px; background: var(--ink); color: var(--surface); cursor: pointer; font-size: 12px; font-weight: 600; transition: opacity 120ms ease; }
 .github-connect:hover { opacity: 0.88; }
@@ -461,7 +462,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (max-width: 640px) {
   .summary-grid { grid-template-columns: 1fr; }
   .topbar-actions .demo-label { display: none; }
-  .theme-toggle-label { display: none; }
   .crumb-root { display: none; }
   .crumb-slash { display: none; }
   .findings-heading { flex-direction: column; align-items: flex-start; gap: 10px; }

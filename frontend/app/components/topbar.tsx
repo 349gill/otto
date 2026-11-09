@@ -47,11 +47,11 @@ export default function Topbar({
           onClick={onToggleTheme}
           aria-pressed={theme === "dark"}
           aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+          title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
         >
           <span className="theme-symbol" aria-hidden="true">
             {theme === "light" ? <MoonIcon className="w-3.5 h-3.5" /> : <SunIcon className="w-3.5 h-3.5" />}
           </span>
-          <span className="theme-toggle-label">{theme === "light" ? "Dark mode" : "Light mode"}</span>
         </button>
         <button className="signout-button" onClick={onSignOut} title="Sign out of Otto">
           Sign out
