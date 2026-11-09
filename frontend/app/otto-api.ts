@@ -131,17 +131,23 @@ export function triggerScan(token: string, repoId: string) {
 
 // Ad-hoc target scans
 export function targetPortScan(token: string, host: string, authorized: boolean) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
   return request<{ findings: ApiFinding[]; summary: string }>("/target/port-scan", token, {
     method: "POST",
     body: JSON.stringify({ host, authorized }),
-  });
+    signal: ctrl.signal,
+  }).finally(() => clearTimeout(timer));
 }
 
 export function targetApiScan(token: string, baseUrl: string, spec: string, authorized: boolean) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
   return request<{ findings: ApiFinding[]; summary: string }>("/target/api-scan", token, {
     method: "POST",
     body: JSON.stringify({ baseUrl, spec, authorized }),
-  });
+    signal: ctrl.signal,
+  }).finally(() => clearTimeout(timer));
 }
 
 export function signOut(token: string) {

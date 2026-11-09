@@ -31,9 +31,11 @@ export default function LoginView({
           )}
         </button>
         <div className="auth-panel">
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: "28px" }}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
             <OttoLogo className="h-10 w-auto" />
           </div>
+
+          <p className="auth-tagline">Fast and reliable application security</p>
 
           {authError && <div className="form-error" role="alert">{authError}</div>}
 

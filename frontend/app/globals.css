@@ -185,13 +185,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .add-repo-action-btn { background: transparent; border: 0; color: #888888; font-size: 14px; font-weight: 400; line-height: 1; padding: 0 4px; cursor: pointer; transition: color 120ms ease; display: inline-flex; align-items: center; justify-content: center; }
 .add-repo-action-btn:hover { background: transparent; color: #ffffff; }
 
-.pentest-nav-group { position: relative; display: flex; flex-direction: column; }
-.pentest-sublist { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; max-height: 0; opacity: 0; overflow: hidden; pointer-events: none; transition: max-height 180ms ease, opacity 140ms ease, margin 140ms ease; margin-top: 0; margin-bottom: 0; }
-.pentest-nav-group:hover .pentest-sublist,
-.pentest-nav-group:focus-within .pentest-sublist { max-height: 90px; opacity: 1; pointer-events: auto; margin-top: 3px; margin-bottom: 8px; }
-.pentest-subitem { min-height: 28px; padding: 0 10px; border-radius: 4px; }
-.pentest-subitem .target-label { font-size: 11px; color: #888888; }
-.pentest-subitem:hover .target-label { color: #ffffff; }
 .repo-sublist { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; padding-left: 2px; }
 .sidebar-header-row { display: flex; align-items: center; justify-content: space-between; }
 .sidebar-close-mobile { display: none; background: transparent; border: 0; color: #888888; cursor: pointer; padding: 6px; margin-bottom: 24px; }
@@ -275,7 +268,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .chart-legend .severe-dot { background: #ef4444; }
 .chart-legend .minor-dot { border: 0; background: #eab308; }
 .chart-target { margin-left: auto; overflow: hidden; max-width: 40%; text-overflow: ellipsis; white-space: nowrap; }
-.chart-wrap { position: relative; height: 160px; margin-top: 8px; padding-left: 28px; }
+.chart-wrap { position: relative; height: 180px; margin-top: 8px; padding-left: 28px; }
 .chart-y-labels { position: absolute; top: 6px; bottom: 4px; left: 0; display: flex; flex-direction: column; justify-content: space-between; color: var(--subtle); font-size: 8px; font-family: var(--font-geist-mono), monospace; }
 .activity-chart { display: block; width: 100%; height: 100%; overflow: visible; }
 .chart-gridline { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -366,7 +359,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 .scan-trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--ink); border-radius: 4px; background: transparent; color: var(--ink); cursor: pointer; font-size: 10px; font-weight: 600; transition: all 120ms ease; }
 .scan-trigger:hover:not(:disabled) { background: var(--ink); color: var(--surface); }
-.scan-trigger:disabled { opacity: 0.4; cursor: wait; }
+.scan-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+.scan-trigger:disabled.scanning { cursor: wait; }
 
 .dialog-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(4px); }
 .finding-dialog { width: min(100%, 520px); padding: 22px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2); }
@@ -848,6 +842,34 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   color: var(--ink);
 }
 
+.otto-suggestion-text {
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.otto-suggestion-text p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.auth-tagline {
+  margin: -10px 0 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+}
+
 .fix-code-block {
   margin: 8px 0 0;
   padding: 10px;
@@ -859,7 +881,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   font-size: 11px;
   line-height: 1.45;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
   max-height: 240px;
   overflow-y: auto;
 }

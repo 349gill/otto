@@ -249,6 +249,16 @@ export default function ConnectedPage() {
   const [applyingFix, setApplyingFix] = useState(false);
   const [fixResult, setFixResult] = useState<{ number: number; html_url: string; title: string } | null>(null);
   const [fixError, setFixError] = useState("");
+  const [createdPRs, setCreatedPRs] = useState<Record<string, { number: number; html_url: string; title: string }>>({});
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("otto-created-prs");
+      if (saved) setCreatedPRs(JSON.parse(saved));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -287,15 +297,30 @@ export default function ConnectedPage() {
         window.sessionStorage.setItem("otto-email", hashEmail);
         window.sessionStorage.setItem("otto-name", hashName);
         window.sessionStorage.setItem("otto-avatar", hashAvatar);
+        window.localStorage.setItem("otto-token", hashToken);
+        window.localStorage.setItem("otto-email", hashEmail);
+        window.localStorage.setItem("otto-name", hashName);
+        window.localStorage.setItem("otto-avatar", hashAvatar);
         window.history.replaceState(null, "", window.location.pathname);
       }
     }
 
     Promise.resolve().then(async () => {
-      const savedToken = window.sessionStorage.getItem("otto-token");
-      const savedEmail = window.sessionStorage.getItem("otto-email") ?? "";
-      const savedName = window.sessionStorage.getItem("otto-name") ?? savedEmail.split("@")[0];
-      const savedAvatar = window.sessionStorage.getItem("otto-avatar") ?? "";
+      const savedToken =
+        window.sessionStorage.getItem("otto-token") ||
+        window.localStorage.getItem("otto-token");
+      const savedEmail =
+        window.sessionStorage.getItem("otto-email") ||
+        window.localStorage.getItem("otto-email") ||
+        "";
+      const savedName =
+        window.sessionStorage.getItem("otto-name") ||
+        window.localStorage.getItem("otto-name") ||
+        savedEmail.split("@")[0];
+      const savedAvatar =
+        window.sessionStorage.getItem("otto-avatar") ||
+        window.localStorage.getItem("otto-avatar") ||
+        "";
 
       if (!savedToken) {
         if (active) setAuthReady(true);
@@ -313,13 +338,26 @@ export default function ConnectedPage() {
         const loaded = await loadWorkspace(savedToken);
         if (active) setWorkspace(loaded);
       } catch (error: unknown) {
-        window.sessionStorage.removeItem("otto-token");
-        window.sessionStorage.removeItem("otto-email");
-        window.sessionStorage.removeItem("otto-name");
-        window.sessionStorage.removeItem("otto-avatar");
-        if (active) {
-          setToken(null);
-          setAuthError(error instanceof Error ? error.message : "Unable to load workspace.");
+        const msg = error instanceof Error ? error.message.toLowerCase() : "";
+        const isExpired = msg.includes("invalid or expired token") || msg.includes("unauthorized") || msg.includes("401");
+        if (isExpired) {
+          window.sessionStorage.removeItem("otto-token");
+          window.sessionStorage.removeItem("otto-email");
+          window.sessionStorage.removeItem("otto-name");
+          window.sessionStorage.removeItem("otto-avatar");
+          window.localStorage.removeItem("otto-token");
+          window.localStorage.removeItem("otto-email");
+          window.localStorage.removeItem("otto-name");
+          window.localStorage.removeItem("otto-avatar");
+          if (active) {
+            setToken(null);
+            setAuthError(error instanceof Error ? error.message : "Unable to load workspace.");
+          }
+        } else {
+          console.warn("[Otto] Non-auth workspace load failure:", error);
+          if (active) {
+            setPageError(error instanceof Error ? error.message : "Unable to reach workspace backend.");
+          }
         }
       } finally {
         if (active) setAuthReady(true);
@@ -493,7 +531,9 @@ export default function ConnectedPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to refresh workspace.";
       setPageError(message);
-      if (message.toLowerCase().includes("token")) handleSignOut();
+      if (message.toLowerCase().includes("invalid or expired token") || message.includes("401")) {
+        handleSignOut();
+      }
     } finally {
       setRefreshing(false);
     }
@@ -562,7 +602,18 @@ export default function ConnectedPage() {
       );
       const res = await applyFix(token, selectedFinding.repoId, findingIndex >= 0 ? findingIndex : 0);
       if (res.pullRequests && res.pullRequests.length > 0) {
-        setFixResult(res.pullRequests[0]);
+        const pr = res.pullRequests[0];
+        setFixResult(pr);
+        const fKey = `${selectedFinding.repoId}:${selectedFinding.file}:${selectedFinding.ruleId}:${selectedFinding.line}`;
+        setCreatedPRs((prev) => {
+          const next = { ...prev, [fKey]: pr };
+          try {
+            window.localStorage.setItem("otto-created-prs", JSON.stringify(next));
+          } catch {
+            // ignore
+          }
+          return next;
+        });
       } else {
         setFixError("No pull request could be created.");
       }
@@ -623,6 +674,10 @@ export default function ConnectedPage() {
     window.sessionStorage.removeItem("otto-email");
     window.sessionStorage.removeItem("otto-name");
     window.sessionStorage.removeItem("otto-avatar");
+    window.localStorage.removeItem("otto-token");
+    window.localStorage.removeItem("otto-email");
+    window.localStorage.removeItem("otto-name");
+    window.localStorage.removeItem("otto-avatar");
     setToken(null);
     setWorkspace(null);
     setSelectedRepoId(null);
@@ -676,8 +731,6 @@ export default function ConnectedPage() {
           setSetupOpen(true);
         }}
         onSignOut={handleSignOut}
-        onRunPortScan={runTargetPortScan}
-        onRunApiScan={runTargetApiScan}
         isMobileOpen={mobileNavOpen}
         onCloseMobile={() => setMobileNavOpen(false)}
       />
@@ -1003,6 +1056,11 @@ export default function ConnectedPage() {
         finding={selectedFinding}
         applyingFix={applyingFix}
         fixResult={fixResult}
+        existingPR={
+          selectedFinding
+            ? createdPRs[`${selectedFinding.repoId}:${selectedFinding.file}:${selectedFinding.ruleId}:${selectedFinding.line}`]
+            : null
+        }
         fixError={fixError}
         onClose={() => setSelectedFinding(null)}
         onApplyFix={handleApplyFix}

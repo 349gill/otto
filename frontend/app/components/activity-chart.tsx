@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import type { ScanHistoryPoint } from "../otto-api";
 
 type ActivityChartProps = {
@@ -8,7 +9,7 @@ type ActivityChartProps = {
 
 function makeChartPoints(values: number[], maximum: number) {
   const width = 640;
-  const height = 220;
+  const height = 180;
   const padding = 16;
   return values
     .map((value, index) => {
@@ -21,7 +22,7 @@ function makeChartPoints(values: number[], maximum: number) {
 
 function makeChartBand(values: number[], maximum: number) {
   const width = 640;
-  const height = 220;
+  const height = 180;
   const padding = 16;
   const upper = values.map((value, index) => {
     const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
@@ -32,7 +33,7 @@ function makeChartBand(values: number[], maximum: number) {
     .map((value, index) => {
       const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
       const y = height - padding - (value / maximum) * (height - padding * 2);
-      return `${x},${Math.min(height - padding, y + 12)}`;
+      return `${x},${Math.min(height - padding, y + 10)}`;
     })
     .reverse();
   return [...upper, ...lower].join(" ");
@@ -43,6 +44,12 @@ export default function ActivityChart({
   chartMaximum,
   selectedName,
 }: ActivityChartProps) {
+  const [animKey, setAnimKey] = useState(0);
+
+  useEffect(() => {
+    setAnimKey((k) => k + 1);
+  }, [selectedName, chartHistory]);
+
   const severeLine = makeChartPoints(
     chartHistory.map((point) => point.serious),
     chartMaximum
@@ -87,22 +94,23 @@ export default function ActivityChart({
               <span>0</span>
             </div>
             <svg
+              key={animKey}
               className="activity-chart"
-              viewBox="0 0 640 220"
+              viewBox="0 0 640 180"
               preserveAspectRatio="none"
               role="img"
               aria-label={`Vulnerabilities over 14 days for ${selectedName}`}
             >
               <polygon points={minorBand} className="chart-area minor-area" />
               <polygon points={severeBand} className="chart-area severe-area" />
-              {[16, 78.7, 141.3, 204].map((y) => (
+              {[16, 65, 115, 164].map((y) => (
                 <line key={`grid-${y}`} x1="16" y1={y} x2="624" y2={y} className="chart-gridline" />
               ))}
               <polyline points={severeLine} pathLength="1" className="chart-line severe-line" />
               <polyline points={minorLine} pathLength="1" className="chart-line minor-line" />
               {chartHistory.map((point, index) => {
                 const width = 640;
-                const height = 220;
+                const height = 180;
                 const padding = 16;
                 const x = padding + (index * (width - padding * 2)) / Math.max(chartHistory.length - 1, 1);
                 const ySevere = height - padding - (point.serious / chartMaximum) * (height - padding * 2);
@@ -113,10 +121,10 @@ export default function ActivityChart({
                       <circle
                         cx={x}
                         cy={ySevere}
-                        r="4.5"
+                        r="3.5"
                         className="chart-point severe-point"
                         stroke="var(--surface)"
-                        strokeWidth="2"
+                        strokeWidth="1.5"
                       >
                         <title>{`${point.date}: ${point.serious} serious vulnerability${point.serious > 1 ? "s" : ""}`}</title>
                       </circle>
@@ -125,7 +133,7 @@ export default function ActivityChart({
                       <circle
                         cx={x}
                         cy={yMinor}
-                        r="4"
+                        r="3.5"
                         className="chart-point minor-point"
                         stroke="var(--surface)"
                         strokeWidth="1.5"

@@ -590,16 +590,16 @@ function deduplicateFindings(findings: Finding[]): Finding[] {
 
 function formatPRComment(findings: Finding[], commit: string, counts: { serious: number; minor: number; info: number }): string {
   const lines: string[] = [];
-  lines.push("## 🔒 Otto Security Scan\n");
+  lines.push("## Otto Security Scan\n");
   lines.push(`**Commit:** \`${commit.slice(0, 7)}\``);
-  lines.push(`**Status:** ${counts.serious > 0 ? "🔴" : "⚠️"} ${findings.length} vulnerabilities found\n`);
+  lines.push(`**Status:** ${findings.length} vulnerabilities found (${counts.serious} serious, ${counts.minor} minor, ${counts.info} info)\n`);
 
   const serious = findings.filter((f) => f.severity === "serious");
   const minor = findings.filter((f) => f.severity === "minor");
   const info = findings.filter((f) => f.severity === "info");
 
   if (serious.length > 0) {
-    lines.push(`### 🔴 Serious (${serious.length})`);
+    lines.push(`### Serious (${serious.length})`);
     lines.push("| File | Line | Finding | Rule | Source |");
     lines.push("|------|------|---------|------|--------|");
     for (const f of serious) {
@@ -609,7 +609,7 @@ function formatPRComment(findings: Finding[], commit: string, counts: { serious:
   }
 
   if (minor.length > 0) {
-    lines.push(`### ⚠️ Minor (${minor.length})`);
+    lines.push(`### Minor (${minor.length})`);
     lines.push("| File | Line | Finding | Rule | Source |");
     lines.push("|------|------|---------|------|--------|");
     for (const f of minor) {
@@ -619,7 +619,7 @@ function formatPRComment(findings: Finding[], commit: string, counts: { serious:
   }
 
   if (info.length > 0) {
-    lines.push(`### ℹ️ Info (${info.length})`);
+    lines.push(`### Info (${info.length})`);
     lines.push("| File | Line | Finding | Rule |");
     lines.push("|------|------|---------|------|");
     for (const f of info) {
@@ -701,27 +701,23 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
 
       const prTitle = `fix(security): ${finding.title}`;
       const prBody = [
-        `<p align="left"><img src="https://avatars.githubusercontent.com/in/5662520?v=4" width="48" height="48" alt="Otto Security" style="border-radius: 6px;" /></p>`,
-        ``,
-        `## 🤖 Otto Security Fix`,
-        ``,
-        `> Automated security remediation opened by **[Otto Security](https://github.com/apps/otto-security)** (\`otto-security[bot]\`).`,
+        `## Otto Security Fix`,
         ``,
         `**Finding:** ${finding.title}`,
         `**File:** \`${finding.file}\`${finding.line ? ` (line ${finding.line})` : ""}`,
-        `**Severity:** \`${finding.severity}\``,
+        `**Severity:** ${finding.severity}`,
         `**Rule:** \`${finding.ruleId}\``,
         ``,
-        `### Security Impact`,
+        `### Description`,
         finding.comment,
         ``,
-        `### Applied Remediation`,
+        `### Suggested Remediation`,
         `\`\`\``,
         finding.fix,
         `\`\`\``,
         ``,
         `---`,
-        `*Remediated and opened by [Otto Security](https://github.com/apps/otto-security) · Bot \`otto-security[bot]\`*`,
+        `Automated security remediation by Otto.`,
       ].join("\n");
 
       const pr = await createPullRequest(

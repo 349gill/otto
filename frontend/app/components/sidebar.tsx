@@ -17,8 +17,6 @@ type SidebarProps = {
   onSelectRepo: (id: string | null) => void;
   onOpenConnectModal: () => void;
   onSignOut: () => void;
-  onRunPortScan?: () => void;
-  onRunApiScan?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
 };
@@ -36,8 +34,6 @@ export default function Sidebar({
   onSelectView,
   onSelectRepo,
   onOpenConnectModal,
-  onRunPortScan,
-  onRunApiScan,
   isMobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
@@ -50,20 +46,6 @@ export default function Sidebar({
         input?.focus();
       }
     }, 60);
-  }
-
-  function handleRunPortScanClick() {
-    onSelectView("target");
-    onCloseMobile?.();
-    scrollToSection("target-port-scan");
-    onRunPortScan?.();
-  }
-
-  function handleRunApiScanClick() {
-    onSelectView("target");
-    onCloseMobile?.();
-    scrollToSection("target-api-scan");
-    onRunApiScan?.();
   }
 
   const pentestCount = targetFindingsCount ?? portFindingsCount ?? 0;
@@ -120,36 +102,17 @@ export default function Sidebar({
           </button>
 
           {/* 2. PENETRATION TESTING */}
-          <div className="pentest-nav-group">
-            <button
-              className={`nav-item ${activeView === "target" ? "active" : ""}`}
-              onClick={() => {
-                onSelectView("target");
-                onCloseMobile?.();
-                scrollToSection("target");
-              }}
-            >
-              <span className="nav-item-title">Penetration Testing</span>
-              {pentestCount > 0 && <span className="nav-count">{pentestCount}</span>}
-            </button>
-
-            <div className="pentest-sublist">
-              <button
-                type="button"
-                className="target-item pentest-subitem"
-                onClick={handleRunPortScanClick}
-              >
-                <span className="target-label">Run port scan</span>
-              </button>
-              <button
-                type="button"
-                className="target-item pentest-subitem"
-                onClick={handleRunApiScanClick}
-              >
-                <span className="target-label">Run api scan</span>
-              </button>
-            </div>
-          </div>
+          <button
+            className={`nav-item ${activeView === "target" ? "active" : ""}`}
+            onClick={() => {
+              onSelectView("target");
+              onCloseMobile?.();
+              scrollToSection("target");
+            }}
+          >
+            <span className="nav-item-title">Penetration Testing</span>
+            {pentestCount > 0 && <span className="nav-count">{pentestCount}</span>}
+          </button>
 
           {/* 3. REPOSITORIES */}
           <div className="sidebar-section">

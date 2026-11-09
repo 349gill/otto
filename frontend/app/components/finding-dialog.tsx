@@ -6,6 +6,7 @@ type FindingDialogProps = {
   finding: DisplayFinding | null;
   applyingFix: boolean;
   fixResult: { number: number; html_url: string; title: string } | null;
+  existingPR?: { number: number; html_url: string; title: string } | null;
   fixError: string;
   onClose: () => void;
   onApplyFix: () => void;
@@ -19,11 +20,14 @@ export default function FindingDialog({
   finding,
   applyingFix,
   fixResult,
+  existingPR,
   fixError,
   onClose,
   onApplyFix,
 }: FindingDialogProps) {
   if (!finding) return null;
+
+  const currentPR = fixResult || existingPR;
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -71,10 +75,12 @@ export default function FindingDialog({
               <OttoLogo className="h-3 w-auto" />
               <strong>Suggested fix</strong>
             </div>
-            <pre className="fix-code-block">{finding.fix}</pre>
+            <div className="otto-suggestion-text">
+              <p>{finding.fix}</p>
+            </div>
 
             <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {!fixResult ? (
+              {!currentPR ? (
                 <button
                   className="fix-pr-button"
                   disabled={applyingFix}
@@ -86,8 +92,8 @@ export default function FindingDialog({
               ) : (
                 <div className="fix-pr-result">
                   <span>PR opened:</span>
-                  <a href={fixResult.html_url} target="_blank" rel="noopener noreferrer">
-                    #{fixResult.number} {fixResult.title}
+                  <a href={currentPR.html_url} target="_blank" rel="noopener noreferrer">
+                    #{currentPR.number} {currentPR.title}
                   </a>
                 </div>
               )}

@@ -59,7 +59,7 @@ export default function TargetScanPanel({
           />
           <button
             className="scan-trigger"
-            disabled={!targetAuthorized || targetBusy !== null}
+            disabled={targetBusy !== null}
             onClick={onRunPortScan}
           >
             {targetBusy === "port" ? "Scanning..." : "Run port scan"}
@@ -84,7 +84,7 @@ export default function TargetScanPanel({
           />
           <button
             className="scan-trigger"
-            disabled={!targetAuthorized || targetBusy !== null}
+            disabled={targetBusy !== null}
             onClick={onRunApiScan}
           >
             {targetBusy === "api" ? "Scanning..." : "Run API scan"}
