@@ -55,6 +55,11 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   }
 }
 
+// Health check endpoint
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
 // Redirect to GitHub OAuth flow.
 app.get("/auth/github", (_req, res) => {
   if (!config.githubClientId) return res.status(501).json({ error: "GitHub OAuth not configured" });
