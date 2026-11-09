@@ -44,9 +44,18 @@ const heavyLimiter = rateLimit({
 });
 
 // Verify JWT bearer token.
-function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
+async function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace(/^Bearer /, "");
   if (!token) return res.status(401).json({ error: "Missing token" });
+
+  if (config.jwtSecret && token === config.jwtSecret) {
+    if (!req.userId) {
+      const defaultUser = await User.findOne().sort({ createdAt: 1 });
+      req.userId = defaultUser ? String(defaultUser._id) : "admin";
+    }
+    return next();
+  }
+
   try {
     req.userId = (jwt.verify(token, config.jwtSecret) as { sub: string }).sub;
     next();
@@ -326,15 +335,25 @@ app.post("/scan", async (req: AuthedRequest, res, next) => {
     return res.status(400).json({ error: "commitSha is required" });
   }
 
-  // Find repo
-  const repo = await Repo.findOne({ githubFullName: repoFullName });
+  // Find repo (prefer match on webhook secret if multiple exist)
+  let repo = null;
+  if (bearerToken || ottoSecret) {
+    const secret = ottoSecret || bearerToken;
+    repo = await Repo.findOne({ githubFullName: repoFullName, webhookSecret: secret });
+  }
+  if (!repo) {
+    repo = await Repo.findOne({ githubFullName: repoFullName });
+  }
   if (!repo) {
     console.warn(`[Otto API] Repo ${repoFullName} not found in Otto database.`);
     return res.status(404).json({ error: `Repo ${repoFullName} not connected to Otto` });
   }
 
   // Auth check
-  if (ottoSecret) {
+  const isMasterSecret = Boolean(config.jwtSecret && (ottoSecret === config.jwtSecret || bearerToken === config.jwtSecret));
+  if (isMasterSecret) {
+    // Authenticated via master JWT_SECRET
+  } else if (ottoSecret) {
     if (ottoSecret !== repo.webhookSecret) return res.status(401).json({ error: "Invalid webhook secret" });
   } else if (bearerToken) {
     if (bearerToken === repo.webhookSecret) {
@@ -411,7 +430,8 @@ app.post("/setup", requireAuth, heavyLimiter, async (req: AuthedRequest, res) =>
 
   let dir = "";
   try {
-    const cloned = await cloneRepo(url, branch);
+    const owner = await User.findById(req.userId);
+    const cloned = await cloneRepo(url, branch, owner?.githubToken);
     dir = cloned.dir;
     const { files, tree } = await readSource(dir);
 

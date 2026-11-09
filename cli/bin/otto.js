@@ -74,19 +74,25 @@ jobs:
 
       - name: Run Otto scan
         env:
-          OTTO_API_URL: \${{ secrets.OTTO_API_URL }}
-          OTTO_TOKEN: \${{ secrets.OTTO_TOKEN }}
+          OTTO_API_URL: \${{ secrets.OTTO_API_URL || secrets.OTTO_URL }}
+          OTTO_TOKEN: \${{ secrets.OTTO_TOKEN || secrets.OTTO_API_TOKEN }}
           OTTO_REPO_ID: \${{ secrets.OTTO_REPO_ID }}
         run: |
-          if [ -z "$OTTO_API_URL" ] || [ -z "$OTTO_TOKEN" ]; then
-            echo "::error::Missing OTTO_API_URL or OTTO_TOKEN in repository secrets."
+          TOKEN="\${OTTO_TOKEN:-$OTTO_API_TOKEN}"
+          API_URL="\${OTTO_API_URL:-$OTTO_URL}"
+
+          if [ -z "$API_URL" ] || [ -z "$TOKEN" ]; then
+            echo "::error::Missing OTTO_API_URL or OTTO_TOKEN (or OTTO_API_TOKEN) in repository secrets."
             exit 1
           fi
 
-          API_URL="\${OTTO_API_URL%/}"
+          API_URL="\${API_URL%/}"
           PR_NUMBER=""
+          COMMIT_SHA="\${{ github.sha }}"
+
           if [ "\${{ github.event_name }}" = "pull_request" ]; then
             PR_NUMBER="\${{ github.event.pull_request.number }}"
+            COMMIT_SHA="\${{ github.event.pull_request.head.sha }}"
           fi
 
           if [ -n "$OTTO_REPO_ID" ]; then
@@ -94,11 +100,11 @@ jobs:
             PAYLOAD="{}"
           else
             ENDPOINT="$API_URL/scan"
-            PAYLOAD="{\\"repoFullName\\":\\"\${{ github.repository }}\\",\\"commitSha\\":\\"\${{ github.sha }}\\",\\"prNumber\\":\${PR_NUMBER:-null},\\"ref\\":\\"\${{ github.ref }}\\"}"
+            PAYLOAD="{\\"repoFullName\\":\\"\${{ github.repository }}\\",\\"commitSha\\":\\"$COMMIT_SHA\\",\\"prNumber\\":\${PR_NUMBER:-null},\\"ref\\":\\"\${{ github.ref }}\\"}"
           fi
 
           RESPONSE=\$(curl -s -w "\\n%{http_code}" -X POST "\$ENDPOINT" \\
-            -H "Authorization: Bearer \$OTTO_TOKEN" \\
+            -H "Authorization: Bearer \$TOKEN" \\
             -H "Content-Type: application/json" \\
             -H "ngrok-skip-browser-warning: true" \\
             -d "\$PAYLOAD")
@@ -112,18 +118,29 @@ jobs:
             exit 1
           fi
 
-          STATUS=\$(echo "\$BODY" | jq -r '.status // empty' 2>/dev/null || echo "unknown")
+          echo "\$BODY" > scan_response.json
+
+          STATUS=\$(jq -r '.status // "unknown"' scan_response.json 2>/dev/null || echo "unknown")
+          SERIOUS=\$(jq -r '.counts.serious // 0' scan_response.json 2>/dev/null || echo "0")
+          MINOR=\$(jq -r '.counts.minor // 0' scan_response.json 2>/dev/null || echo "0")
+
+          echo "### Otto Security Scan" >> "\$GITHUB_STEP_SUMMARY"
+          echo "" >> "\$GITHUB_STEP_SUMMARY"
+          echo "- **Status:** \$STATUS" >> "\$GITHUB_STEP_SUMMARY"
+          echo "- **Serious Issues:** \$SERIOUS" >> "\$GITHUB_STEP_SUMMARY"
+          echo "- **Minor Issues:** \$MINOR" >> "\$GITHUB_STEP_SUMMARY"
+
           if [ "\$STATUS" = "fail" ]; then
-            echo "::error::Otto detected security vulnerabilities."
-            echo "\$BODY" | jq . 2>/dev/null || echo "\$BODY"
+            echo "::error::Otto detected \$SERIOUS serious and \$MINOR minor vulnerabilities."
+            jq . scan_response.json 2>/dev/null || echo "\$BODY"
             exit 1
           elif [ "\$STATUS" = "error" ]; then
-            echo "::error::Otto scan encountered an internal error."
-            echo "\$BODY" | jq . 2>/dev/null || echo "\$BODY"
+            echo "::error::Otto scan encountered an error."
+            jq . scan_response.json 2>/dev/null || echo "\$BODY"
             exit 1
           fi
 
-          echo "Otto scan passed: no vulnerabilities detected."
+          echo "Otto scan passed: 0 vulnerabilities found."
 `
 }
 
@@ -131,8 +148,8 @@ program
   .name('otto')
   .description('Otto security scanner CLI')
   .version('0.1.0')
-  .option('-u, --url <url>', 'Otto API base URL', process.env.OTTO_API_URL || 'http://localhost:4000')
-  .option('-t, --token <token>', 'Otto JWT authentication token', process.env.OTTO_TOKEN || '')
+  .option('-u, --url <url>', 'Otto API base URL', process.env.OTTO_API_URL || process.env.OTTO_URL || 'http://localhost:4000')
+  .option('-t, --token <token>', 'Otto JWT authentication token', process.env.OTTO_TOKEN || process.env.OTTO_API_TOKEN || '')
 
 program
   .command('scan')
@@ -206,14 +223,15 @@ program
   })
 
 program
-  .command('setup')
+  .command('setup [filename]')
   .description('Generate GitHub Actions CI workflow file for Otto scanning')
   .option('-e, --environment <env>', 'Environment name (dev, staging, production, etc.)', 'production')
   .option('-b, --branch <branch>', 'Branch name trigger for workflow')
   .option('-o, --output <path>', 'Destination path for workflow file')
+  .option('-n, --name <name>', 'Workflow filename (e.g. production.yml)')
   .option('--stdout', 'Print generated workflow directly to stdout without writing to disk')
-  .action((cmdOpts) => {
-    const env = cmdOpts.environment
+  .action((filenameArg, cmdOpts) => {
+    const env = cmdOpts.environment || 'production'
     const content = buildWorkflowTemplate(env, cmdOpts.branch)
 
     if (cmdOpts.stdout) {
@@ -221,9 +239,14 @@ program
       return
     }
 
-    const defaultDir = path.resolve('.github', 'workflows')
-    const defaultFile = path.join(defaultDir, `otto-${env}.yml`)
-    const targetFile = cmdOpts.output ? path.resolve(cmdOpts.output) : defaultFile
+    let targetFile
+    if (cmdOpts.output) {
+      targetFile = path.resolve(cmdOpts.output)
+    } else {
+      const rawName = filenameArg || cmdOpts.name || `${env}.yml`
+      const fileName = rawName.endsWith('.yml') || rawName.endsWith('.yaml') ? rawName : `${rawName}.yml`
+      targetFile = path.resolve('.github', 'workflows', fileName)
+    }
 
     mkdirSync(path.dirname(targetFile), { recursive: true })
     writeFileSync(targetFile, content, 'utf8')
@@ -231,8 +254,8 @@ program
     console.log(`[OK] Generated workflow at ${path.relative(process.cwd(), targetFile) || targetFile}`)
     console.log()
     console.log('Required repository secrets (Settings -> Secrets and variables -> Actions):')
-    console.log('  OTTO_API_URL    Base URL of your Otto server (e.g. https://api.otto.security)')
-    console.log('  OTTO_TOKEN      Otto JWT authentication token')
+    console.log('  OTTO_API_URL    Base URL of your Otto server (e.g. https://guide-carve-stout.ngrok-free.dev)')
+    console.log('  OTTO_TOKEN      Otto JWT authentication token or repo secret (or OTTO_API_TOKEN)')
     console.log('  OTTO_REPO_ID    (Optional) Repository ID from Otto dashboard')
   })
 

@@ -1,0 +1,89 @@
+name: Otto Security Scan (production)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  otto-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Otto scan
+        env:
+          OTTO_API_URL: ${{ secrets.OTTO_API_URL || secrets.OTTO_URL }}
+          OTTO_TOKEN: ${{ secrets.OTTO_TOKEN || secrets.OTTO_API_TOKEN }}
+          OTTO_REPO_ID: ${{ secrets.OTTO_REPO_ID }}
+        run: |
+          TOKEN="${OTTO_TOKEN:-$OTTO_API_TOKEN}"
+          API_URL="${OTTO_API_URL:-$OTTO_URL}"
+
+          if [ -z "$API_URL" ] || [ -z "$TOKEN" ]; then
+            echo "::error::Missing OTTO_API_URL or OTTO_TOKEN (or OTTO_API_TOKEN) in repository secrets."
+            exit 1
+          fi
+
+          API_URL="${API_URL%/}"
+          PR_NUMBER=""
+          COMMIT_SHA="${{ github.sha }}"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+          fi
+
+          if [ -n "$OTTO_REPO_ID" ]; then
+            ENDPOINT="$API_URL/repos/$OTTO_REPO_ID/scan"
+            PAYLOAD="{}"
+          else
+            ENDPOINT="$API_URL/scan"
+            PAYLOAD="{\"repoFullName\":\"${{ github.repository }}\",\"commitSha\":\"$COMMIT_SHA\",\"prNumber\":${PR_NUMBER:-null},\"ref\":\"${{ github.ref }}\"}"
+          fi
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$ENDPOINT" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "ngrok-skip-browser-warning: true" \
+            -d "$PAYLOAD")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" -ge 400 ] || [ "$HTTP_CODE" -eq 0 ]; then
+            echo "::error::Otto scan request failed with HTTP $HTTP_CODE"
+            echo "$BODY"
+            exit 1
+          fi
+
+          echo "$BODY" > scan_response.json
+
+          STATUS=$(jq -r '.status // "unknown"' scan_response.json 2>/dev/null || echo "unknown")
+          SERIOUS=$(jq -r '.counts.serious // 0' scan_response.json 2>/dev/null || echo "0")
+          MINOR=$(jq -r '.counts.minor // 0' scan_response.json 2>/dev/null || echo "0")
+
+          echo "### Otto Security Scan" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Status:** $STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Serious Issues:** $SERIOUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Minor Issues:** $MINOR" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$STATUS" = "fail" ]; then
+            echo "::error::Otto detected $SERIOUS serious and $MINOR minor vulnerabilities."
+            jq . scan_response.json 2>/dev/null || echo "$BODY"
+            exit 1
+          elif [ "$STATUS" = "error" ]; then
+            echo "::error::Otto scan encountered an error."
+            jq . scan_response.json 2>/dev/null || echo "$BODY"
+            exit 1
+          fi
+
+          echo "Otto scan passed: 0 vulnerabilities found."
