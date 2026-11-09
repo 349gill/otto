@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import { randomBytes } from "node:crypto";
 import { rm } from "node:fs/promises";
+import cookieParser from "cookie-parser";
 import { config } from "./config.js";
 import { Repo, Scan, User, oid, type Finding } from "./models.js";
 import { gemini, scanWithGemini, stripFences } from "./gemini.js";
@@ -30,6 +31,7 @@ app.use(
   })
 );
 app.use(express.json({ limit: "100kb" }));
+app.use(cookieParser());
 
 // Rate limiters for auth endpoints and resource-heavy operations.
 const authLimiter = rateLimit({
@@ -59,11 +61,18 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
 app.get("/auth/github", (_req, res) => {
   if (!config.githubClientId) return res.status(501).json({ error: "GitHub OAuth not configured" });
   const callbackUrl = `${config.backendUrl}/auth/github/callback`;
+  const state = randomBytes(16).toString("hex");
+  res.cookie("oauth_state", state, {
+    httpOnly: true,
+    secure: config.backendUrl.startsWith("https://"),
+    sameSite: "lax",
+    maxAge: 10 * 60 * 1000, // 10 minutes
+  });
   const params = new URLSearchParams({
     client_id: config.githubClientId,
     scope: "repo user:email read:user",
     redirect_uri: callbackUrl,
-    state: randomBytes(16).toString("hex"),
+    state,
   });
   const target = `https://github.com/login/oauth/authorize?${params}`;
   if (_req.headers.accept?.includes("application/json") || _req.query.format === "json") {
@@ -75,7 +84,15 @@ app.get("/auth/github", (_req, res) => {
 // Complete GitHub OAuth exchange.
 app.get("/auth/github/callback", authLimiter, async (req, res) => {
   const code = String(req.query.code ?? "");
+  const state = String(req.query.state ?? "");
+  const storedState = req.cookies?.oauth_state;
+
+  res.clearCookie("oauth_state");
+
   if (!code) return res.status(400).json({ error: "Missing code" });
+  if (!state || !storedState || state !== storedState) {
+    return res.status(400).json({ error: "Invalid state parameter" });
+  }
 
   try {
     const accessToken = await exchangeCodeForToken(config.githubClientId, config.githubClientSecret, code);
