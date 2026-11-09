@@ -9,11 +9,11 @@ type SidebarProps = {
   previewMode: boolean;
   repos: ApiRepo[];
   selectedRepoId: string | null;
-  activeView: "overview" | "repositories" | "target";
+  activeView: "overview" | "repositories" | "target" | "docs";
   allFindingsCount: number;
   targetFindingsCount?: number;
   portFindingsCount?: number;
-  onSelectView: (view: "overview" | "repositories" | "target") => void;
+  onSelectView: (view: "overview" | "repositories" | "target" | "docs") => void;
   onSelectRepo: (id: string | null) => void;
   onOpenConnectModal: () => void;
   onSignOut: () => void;
@@ -181,6 +181,19 @@ export default function Sidebar({
               })}
             </div>
           </div>
+
+          {/* 4. DOCUMENTATION */}
+          <button
+            className={`nav-item ${activeView === "docs" ? "active" : ""}`}
+            onClick={() => {
+              onSelectView("docs");
+              onSelectRepo(null);
+              onCloseMobile?.();
+              scrollToSection("docs");
+            }}
+          >
+            <span className="nav-item-title">Documentation</span>
+          </button>
         </nav>
 
         <div className="sidebar-bottom">

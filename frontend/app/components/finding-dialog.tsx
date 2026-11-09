@@ -41,7 +41,7 @@ export default function FindingDialog({
         <div className="dialog-top">
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span className={`severity-pill ${finding.severity === "serious" ? "serious" : "minor"}`}>
-              {finding.severity}
+              {finding.severity === "serious" ? "High Risk" : "Low Risk"}
             </span>
             <span className={`source-badge ${finding.source}`}>
               {finding.source === "ai" ? "Gemini" : "Static"}

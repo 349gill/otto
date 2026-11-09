@@ -31,6 +31,7 @@ import TargetScanPanel from "./components/target-scan-panel";
 import ConnectRepoModal from "./components/connect-repo-modal";
 import FindingDialog from "./components/finding-dialog";
 import LoginView from "./components/login-view";
+import DocsView from "./components/docs-view";
 import { CheckIcon, CloseIcon, PlayIcon, RefreshIcon } from "./components/icons";
 
 type WorkspaceData = {
@@ -224,7 +225,7 @@ export default function ConnectedPage() {
   const [authReady, setAuthReady] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<"overview" | "repositories" | "target">("overview");
+  const [activeView, setActiveView] = useState<"overview" | "repositories" | "target" | "docs">("overview");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [authError, setAuthError] = useState("");
   const [pageError, setPageError] = useState("");
@@ -407,6 +408,8 @@ export default function ConnectedPage() {
       ? "Overview"
       : activeView === "target"
       ? "Penetration Testing"
+      : activeView === "docs"
+      ? "Documentation"
       : selectedRepo
       ? selectedRepo.name
       : "Repositories";
@@ -1037,6 +1040,11 @@ export default function ConnectedPage() {
                 onRunApiScan={runTargetApiScan}
               />
             </>
+          )}
+
+          {/* VIEW 4: DOCUMENTATION */}
+          {activeView === "docs" && (
+            <DocsView />
           )}
         </div>
       </main>

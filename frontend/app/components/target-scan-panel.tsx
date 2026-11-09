@@ -97,16 +97,22 @@ export default function TargetScanPanel({
 
       {targetFindings.length > 0 && (
         <ul className="target-findings">
-          {targetFindings.map((finding, index) => (
-            <li key={index} className="target-finding-item">
-              <span className={`target-finding-severity ${finding.severity}`}>{finding.severity}</span>
-              {" · "}
-              {finding.ruleId}
-              {" · "}
-              <code>{finding.file}</code> : {finding.title}
-              <div className="target-finding-detail">{finding.comment}</div>
-            </li>
-          ))}
+          {targetFindings.map((finding, index) => {
+            const isSerious = finding.severity === "serious" || (finding.severity as string) === "severe";
+            return (
+              <li key={index} className="target-finding-item">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+                  <span className={`severity-pill ${isSerious ? "serious" : "minor"}`}>
+                    {isSerious ? "SERIOUS" : "MINOR"}
+                  </span>
+                  {finding.ruleId && <span className="rule-id" style={{ fontSize: "10px" }}>{finding.ruleId}</span>}
+                  {finding.file && <code>{finding.file}</code>}
+                  <strong>{finding.title}</strong>
+                </div>
+                <div className="target-finding-detail">{finding.comment}</div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
