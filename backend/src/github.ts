@@ -220,6 +220,26 @@ export async function createPullRequest(
   return { number: data.number, html_url: data.html_url };
 }
 
+export async function getPullRequest(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+): Promise<{ headRef: string; headSha: string; baseRef: string }> {
+  const url = `${API}/repos/${owner}/${repo}/pulls/${pullNumber}`;
+  const res = await fetch(url, { headers: headers(token) });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub get PR ${res.status}: ${text}`);
+  }
+  const data = (await res.json()) as any;
+  return {
+    headRef: data.head?.ref ?? "",
+    headSha: data.head?.sha ?? "",
+    baseRef: data.base?.ref ?? "main",
+  };
+}
+
 export async function getDefaultBranch(
   token: string,
   owner: string,

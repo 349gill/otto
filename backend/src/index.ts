@@ -13,7 +13,7 @@ import { portScanTarget, apiSpecScan } from "./target.js";
 import { cloneRepo, getDiff, readSource, exec } from "./git.js";
 import {
   exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment,
-  createBranch, createOrUpdateFile, createPullRequest, getDefaultBranch, getFileContent,
+  createBranch, createOrUpdateFile, createPullRequest, getPullRequest, getDefaultBranch, getFileContent,
 } from "./github.js";
 
 type AuthedRequest = Request & { userId?: string };
@@ -737,12 +737,51 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
     let prCreated = false;
     for (const ghToken of candidateTokens) {
       try {
-        const { branch: baseBranch, sha: baseSha } = await getDefaultBranch(ghToken, repoOwner, repoName);
+        let baseBranch = "main";
+        let baseSha = latestScan.commit;
+        let targetPRBranch = "main";
+
+        // If this scan originated from a pull request, branch off the PR head branch
+        if (latestScan.prNumber) {
+          try {
+            const prInfo = await getPullRequest(ghToken, repoOwner, repoName, latestScan.prNumber);
+            if (prInfo.headRef && prInfo.headSha) {
+              baseBranch = prInfo.headRef;
+              baseSha = prInfo.headSha;
+              targetPRBranch = prInfo.headRef;
+            }
+          } catch (e: any) {
+            console.warn(`[Otto] Could not fetch PR #${latestScan.prNumber} details (${e.message}), falling back.`);
+          }
+        }
+
+        // If baseSha wasn't determined or failed, fallback to default branch
+        if (!baseSha) {
+          const def = await getDefaultBranch(ghToken, repoOwner, repoName);
+          baseBranch = def.branch;
+          baseSha = def.sha;
+          targetPRBranch = def.branch;
+        }
+
         const branchName = `otto-fix/${finding.ruleId.toLowerCase()}-${Date.now()}`;
 
         await createBranch(ghToken, repoOwner, repoName, branchName, baseSha);
 
-        const currentContent = await getFileContent(ghToken, repoOwner, repoName, finding.file, baseBranch);
+        // Fetch current file content using multiple candidate refs (commit sha, branch ref, HEAD)
+        let currentContent = "";
+        const refsToTry = [baseSha, baseBranch, latestScan.commit, "HEAD"].filter(Boolean) as string[];
+        for (const r of refsToTry) {
+          try {
+            currentContent = await getFileContent(ghToken, repoOwner, repoName, finding.file, r);
+            if (currentContent) break;
+          } catch {
+            // continue to next candidate ref
+          }
+        }
+
+        if (!currentContent) {
+          throw new Error(`File ${finding.file} could not be found at refs: ${refsToTry.join(", ")}`);
+        }
 
         const updatedContent = await gemini(
           `Apply this security fix to the file and return ONLY the complete updated file content, no explanation.\n\n` +
@@ -782,7 +821,7 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
 
         const pr = await createPullRequest(
           ghToken, repoOwner, repoName,
-          prTitle, prBody, branchName, baseBranch,
+          prTitle, prBody, branchName, targetPRBranch,
         );
 
         pullRequests.push({ number: pr.number, html_url: pr.html_url, title: prTitle });
