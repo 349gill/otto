@@ -48,9 +48,10 @@ export default function TargetScanPanel({
       </div>
 
       <div className="target-grid">
-        <div className="target-column">
+        <div className="target-column" id="target-port-scan">
           <span className="target-col-label">Port scan</span>
           <input
+            id="target-host-input"
             className="target-input"
             placeholder="Host or IP (e.g. 127.0.0.1)"
             value={targetHost}
@@ -65,9 +66,10 @@ export default function TargetScanPanel({
           </button>
         </div>
 
-        <div className="target-column">
+        <div className="target-column" id="target-api-scan">
           <span className="target-col-label">API spec test</span>
           <input
+            id="target-api-input"
             className="target-input"
             placeholder="Base URL (e.g. http://localhost:3000)"
             value={apiBaseUrl}

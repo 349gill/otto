@@ -230,7 +230,6 @@ export default function ConnectedPage() {
   const [pageError, setPageError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [findingFilter, setFindingFilter] = useState<"all" | "vuln" | "port">("all");
   const [targetHost, setTargetHost] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [apiSpec, setApiSpec] = useState("");
@@ -474,13 +473,7 @@ export default function ConnectedPage() {
     })
     .sort((left, right) => new Date(right.scannedAt).getTime() - new Date(left.scannedAt).getTime());
 
-  const isPortFinding = (finding: DisplayFinding) => (finding.ruleId ?? "").toUpperCase().startsWith("PORT");
-  const portFindings = allFindings.filter(isPortFinding);
-  const vulnFindings = allFindings.filter((finding) => !isPortFinding(finding));
-
-  const visibleFindings = allFindings.filter((finding) =>
-    findingFilter === "all" ? true : findingFilter === "port" ? isPortFinding(finding) : !isPortFinding(finding)
-  );
+  const visibleFindings = allFindings;
 
   async function handleGitHubLogin() {
     try {
@@ -672,7 +665,7 @@ export default function ConnectedPage() {
         selectedRepoId={selectedRepoId}
         activeView={activeView}
         allFindingsCount={allFindings.length}
-        portFindingsCount={portFindings.length}
+        targetFindingsCount={targetFindings.length}
         onSelectView={setActiveView}
         onSelectRepo={(id) => {
           setSelectedRepoId(id);
@@ -683,6 +676,8 @@ export default function ConnectedPage() {
           setSetupOpen(true);
         }}
         onSignOut={handleSignOut}
+        onRunPortScan={runTargetPortScan}
+        onRunApiScan={runTargetApiScan}
         isMobileOpen={mobileNavOpen}
         onCloseMobile={() => setMobileNavOpen(false)}
       />
@@ -811,7 +806,7 @@ export default function ConnectedPage() {
                           className="heading-label-btn"
                           style={{ fontSize: "10px", color: "var(--muted)" }}
                         >
-                          ← All repositories
+                          All repositories
                         </button>
                       </div>
                       <h1>{selectedRepo.name}</h1>
@@ -919,7 +914,7 @@ export default function ConnectedPage() {
                               <span>{repo.name}</span>
                             </div>
                             <span className={`severity-pill ${total > 0 ? "serious" : "minor"}`}>
-                              {total > 0 ? `${total} vulns` : "clean"}
+                              {total > 0 ? `${total} reports` : "clean"}
                             </span>
                           </div>
                           <div className="repo-card-meta">

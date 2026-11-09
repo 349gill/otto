@@ -11,11 +11,14 @@ type SidebarProps = {
   selectedRepoId: string | null;
   activeView: "overview" | "repositories" | "target";
   allFindingsCount: number;
-  portFindingsCount: number;
+  targetFindingsCount?: number;
+  portFindingsCount?: number;
   onSelectView: (view: "overview" | "repositories" | "target") => void;
   onSelectRepo: (id: string | null) => void;
   onOpenConnectModal: () => void;
   onSignOut: () => void;
+  onRunPortScan?: () => void;
+  onRunApiScan?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
 };
@@ -28,18 +31,42 @@ export default function Sidebar({
   selectedRepoId,
   activeView,
   allFindingsCount,
+  targetFindingsCount,
   portFindingsCount,
   onSelectView,
   onSelectRepo,
   onOpenConnectModal,
+  onRunPortScan,
+  onRunApiScan,
   isMobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
   function scrollToSection(id: string) {
     setTimeout(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-    }, 50);
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth" });
+        const input = el.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null;
+        input?.focus();
+      }
+    }, 60);
   }
+
+  function handleRunPortScanClick() {
+    onSelectView("target");
+    onCloseMobile?.();
+    scrollToSection("target-port-scan");
+    onRunPortScan?.();
+  }
+
+  function handleRunApiScanClick() {
+    onSelectView("target");
+    onCloseMobile?.();
+    scrollToSection("target-api-scan");
+    onRunApiScan?.();
+  }
+
+  const pentestCount = targetFindingsCount ?? portFindingsCount ?? 0;
 
   return (
     <>
@@ -92,7 +119,39 @@ export default function Sidebar({
             {allFindingsCount > 0 && <span className="nav-count">{allFindingsCount}</span>}
           </button>
 
-          {/* 2. REPOSITORIES */}
+          {/* 2. PENETRATION TESTING */}
+          <div className="pentest-nav-group">
+            <button
+              className={`nav-item ${activeView === "target" ? "active" : ""}`}
+              onClick={() => {
+                onSelectView("target");
+                onCloseMobile?.();
+                scrollToSection("target");
+              }}
+            >
+              <span className="nav-item-title">Penetration Testing</span>
+              {pentestCount > 0 && <span className="nav-count">{pentestCount}</span>}
+            </button>
+
+            <div className="pentest-sublist">
+              <button
+                type="button"
+                className="target-item pentest-subitem"
+                onClick={handleRunPortScanClick}
+              >
+                <span className="target-label">Run port scan</span>
+              </button>
+              <button
+                type="button"
+                className="target-item pentest-subitem"
+                onClick={handleRunApiScanClick}
+              >
+                <span className="target-label">Run api scan</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 3. REPOSITORIES */}
           <div className="sidebar-section">
             <div className="sidebar-heading">
               <button
@@ -159,19 +218,6 @@ export default function Sidebar({
               })}
             </div>
           </div>
-
-          {/* 3. PENETRATION TESTING */}
-          <button
-            className={`nav-item ${activeView === "target" ? "active" : ""}`}
-            onClick={() => {
-              onSelectView("target");
-              onCloseMobile?.();
-              scrollToSection("target");
-            }}
-          >
-            <span className="nav-item-title">Penetration Testing</span>
-            {portFindingsCount > 0 && <span className="nav-count">{portFindingsCount}</span>}
-          </button>
         </nav>
 
         <div className="sidebar-bottom">
