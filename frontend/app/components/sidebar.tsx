@@ -24,7 +24,6 @@ export default function Sidebar({
   userName,
   userEmail,
   userAvatar,
-  previewMode,
   repos,
   selectedRepoId,
   activeView,
@@ -33,7 +32,6 @@ export default function Sidebar({
   onSelectView,
   onSelectRepo,
   onOpenConnectModal,
-  onSignOut,
   isMobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
@@ -79,18 +77,6 @@ export default function Sidebar({
           )}
         </div>
 
-        <div className="workspace-switcher">
-          {userAvatar ? (
-            <img src={userAvatar} alt={userName} className="workspace-avatar" style={{ borderRadius: "5px" }} />
-          ) : (
-            <span className="workspace-avatar">{userName.slice(0, 1).toUpperCase() || "O"}</span>
-          )}
-          <span className="workspace-copy">
-            <strong>{userName || "Workspace"}</strong>
-            <small>{userEmail || "Connected"}</small>
-          </span>
-        </div>
-
         <nav className="primary-nav" aria-label="Main navigation">
           {/* 1. OVERVIEW */}
           <button
@@ -102,11 +88,7 @@ export default function Sidebar({
               scrollToSection("overview");
             }}
           >
-            <span className="nav-glyph">◫</span>
-            <div className="nav-item-copy">
-              <span className="nav-item-title">Overview</span>
-              <span className="nav-item-subtitle">Past 30-day vulnerabilities</span>
-            </div>
+            <span className="nav-item-title">Overview</span>
             {allFindingsCount > 0 && <span className="nav-count">{allFindingsCount}</span>}
           </button>
 
@@ -122,7 +104,6 @@ export default function Sidebar({
                   scrollToSection("repos-overview");
                 }}
               >
-                <span className="nav-glyph">🗂</span>
                 <span>Repositories</span>
                 <span className="target-count">{repos.length}</span>
               </button>
@@ -135,7 +116,7 @@ export default function Sidebar({
                   onCloseMobile?.();
                 }}
               >
-                + Add
+                +
               </button>
             </div>
 
@@ -149,12 +130,11 @@ export default function Sidebar({
                   scrollToSection("repos-overview");
                 }}
               >
-                <span className="target-symbol all-symbol">•</span>
                 <span className="target-label">All repos</span>
                 <span className="target-count">{repos.length}</span>
               </button>
 
-              {repos.map((repo, index) => {
+              {repos.map((repo) => {
                 const isSelected = activeView === "repositories" && selectedRepoId === repo.id;
                 const totalVulns = (repo.lastScan?.counts.serious ?? 0) + (repo.lastScan?.counts.minor ?? 0);
                 return (
@@ -168,9 +148,6 @@ export default function Sidebar({
                       scrollToSection("findings");
                     }}
                   >
-                    <span className={`repo-avatar ${["mint", "coral", "gold"][index % 3]}`}>
-                      {repo.name.slice(0, 2).toUpperCase()}
-                    </span>
                     <span className="target-label" title={repo.githubFullName || repo.name}>
                       {repo.name}
                     </span>
@@ -192,20 +169,20 @@ export default function Sidebar({
               scrollToSection("target");
             }}
           >
-            <span className="nav-glyph">◎</span>
-            <div className="nav-item-copy">
-              <span className="nav-item-title">Penetration Testing</span>
-              <span className="nav-item-subtitle">Port scan & API spec</span>
-            </div>
+            <span className="nav-item-title">Penetration Testing</span>
             {portFindingsCount > 0 && <span className="nav-count">{portFindingsCount}</span>}
           </button>
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="connection-state">
-            <span className="connection-dot" /> {previewMode ? "Preview" : "Connected"}
-          </div>
-          <button className="profile-button" onClick={onSignOut} title="Sign out">
+          <a
+            href={userName ? `https://github.com/${userName}` : "https://github.com"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="profile-button"
+            title={`Open ${userName || "GitHub"} on GitHub`}
+            style={{ textDecoration: "none" }}
+          >
             {userAvatar ? (
               <img src={userAvatar} alt={userName} className="profile-avatar" style={{ borderRadius: "5px" }} />
             ) : (
@@ -213,10 +190,9 @@ export default function Sidebar({
             )}
             <span className="profile-copy">
               <strong>{userName || userEmail}</strong>
-              <small>Sign out</small>
             </span>
             <ExternalLinkIcon className="w-3.5 h-3.5 text-muted ml-auto" />
-          </button>
+          </a>
         </div>
       </aside>
     </>

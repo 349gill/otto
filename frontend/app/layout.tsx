@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Otto | Security Intelligence",
+  title: "Otto",
   description: "Security findings and scan activity across your code and network.",
 };
 

@@ -39,9 +39,6 @@ export default function Topbar({
       </div>
 
       <div className="topbar-actions">
-        <span className="demo-label">
-          <span /> {previewMode ? "Preview mode" : "Live backend"}
-        </span>
         <button
           className="theme-toggle"
           onClick={onToggleTheme}

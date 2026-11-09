@@ -230,7 +230,6 @@ export default function ConnectedPage() {
   const [pageError, setPageError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [search, setSearch] = useState("");
   const [findingFilter, setFindingFilter] = useState<"all" | "vuln" | "port">("all");
   const [targetHost, setTargetHost] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
@@ -368,7 +367,7 @@ export default function ConnectedPage() {
 
   const breadcrumbName =
     activeView === "overview"
-      ? "Overview (Past 30 Days)"
+      ? "Overview"
       : activeView === "target"
       ? "Penetration Testing"
       : selectedRepo
@@ -395,22 +394,69 @@ export default function ConnectedPage() {
     .filter((date): date is string => Boolean(date))
     .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0];
 
-  const timelineMap = new Map<string, ScanHistoryPoint>();
-  for (const dateStr of timelineDates) {
-    timelineMap.set(dateStr, { date: dateStr, serious: 0, minor: 0, scans: 0 });
-  }
+  const sortedDates = [...timelineDates].sort();
+  const repoTimelines = new Map<string, Map<string, { serious: number; minor: number; scans: number }>>();
 
   for (const repo of scopedRepos) {
-    for (const point of workspace?.details[repo.id]?.history ?? []) {
-      const current = timelineMap.get(point.date) ?? { date: point.date, serious: 0, minor: 0, scans: 0 };
-      current.serious += point.serious ?? 0;
-      current.minor += point.minor ?? 0;
-      current.scans += point.scans ?? 0;
-      timelineMap.set(point.date, current);
+    const detail = workspace?.details[repo.id];
+    const history = detail?.history ?? [];
+    const historyByDate = new Map(history.map((h) => [h.date, h]));
+
+    if (detail?.current && detail.current.scannedAt) {
+      const curDate = detail.current.scannedAt.slice(0, 10);
+      if (!historyByDate.has(curDate)) {
+        historyByDate.set(curDate, {
+          date: curDate,
+          serious: detail.current.counts.serious,
+          minor: detail.current.counts.minor,
+          scans: 1,
+        });
+      }
     }
+
+    let lastKnownSerious = repo.lastScan?.counts.serious ?? 0;
+    let lastKnownMinor = repo.lastScan?.counts.minor ?? 0;
+    let hasScanned = false;
+
+    const allScanPoints = Array.from(historyByDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+    if (allScanPoints.length > 0) {
+      lastKnownSerious = allScanPoints[0].serious;
+      lastKnownMinor = allScanPoints[0].minor;
+      hasScanned = true;
+    }
+
+    const repoMap = new Map<string, { serious: number; minor: number; scans: number }>();
+    for (const d of sortedDates) {
+      const dayScan = historyByDate.get(d);
+      if (dayScan) {
+        lastKnownSerious = dayScan.serious;
+        lastKnownMinor = dayScan.minor;
+        hasScanned = true;
+        repoMap.set(d, { serious: lastKnownSerious, minor: lastKnownMinor, scans: dayScan.scans });
+      } else if (hasScanned) {
+        repoMap.set(d, { serious: lastKnownSerious, minor: lastKnownMinor, scans: 0 });
+      } else {
+        repoMap.set(d, { serious: 0, minor: 0, scans: 0 });
+      }
+    }
+    repoTimelines.set(repo.id, repoMap);
   }
 
-  const chartHistory = [...timelineMap.values()].sort((left, right) => left.date.localeCompare(right.date));
+  const chartHistory: ScanHistoryPoint[] = sortedDates.map((d) => {
+    let serious = 0;
+    let minor = 0;
+    let scans = 0;
+    for (const repo of scopedRepos) {
+      const dayData = repoTimelines.get(repo.id)?.get(d);
+      if (dayData) {
+        serious += dayData.serious;
+        minor += dayData.minor;
+        scans += dayData.scans;
+      }
+    }
+    return { date: d, serious, minor, scans };
+  });
+
   const rawMax = Math.max(0, ...chartHistory.flatMap((point) => [point.serious, point.minor]));
   const chartMaximum = Math.max(4, rawMax);
 
@@ -432,15 +478,9 @@ export default function ConnectedPage() {
   const portFindings = allFindings.filter(isPortFinding);
   const vulnFindings = allFindings.filter((finding) => !isPortFinding(finding));
 
-  const visibleFindings = allFindings
-    .filter((finding) =>
-      findingFilter === "all" ? true : findingFilter === "port" ? isPortFinding(finding) : !isPortFinding(finding),
-    )
-    .filter((finding) =>
-      `${finding.title} ${finding.comment} ${finding.file} ${finding.fix} ${finding.ruleId} ${finding.repoName}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-    );
+  const visibleFindings = allFindings.filter((finding) =>
+    findingFilter === "all" ? true : findingFilter === "port" ? isPortFinding(finding) : !isPortFinding(finding)
+  );
 
   async function handleGitHubLogin() {
     try {
@@ -728,33 +768,12 @@ export default function ConnectedPage() {
               <section className="page-heading" id="overview">
                 <div>
                   <h1>Overview</h1>
-                  <p className="page-sub">
-                    Past 30-day vulnerabilities across {repos.length} monitored repositories
-                  </p>
-                </div>
-                <div className="scan-status">
-                  <span className="scan-status-dot" aria-hidden="true" />
-                  <span>
-                    Latest scan: <strong>{displayDate(latestScanDate)}</strong>
-                  </span>
-                  <button
-                    className="refresh-button"
-                    aria-label="Refresh workspace data"
-                    title="Refresh from backend"
-                    disabled={refreshing}
-                    onClick={refreshWorkspace}
-                  >
-                    <RefreshIcon className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
-                  </button>
                 </div>
               </section>
 
               <SummaryCards
                 seriousCount={latestCounts.serious}
                 minorCount={latestCounts.minor}
-                repoCount={scopedRepos.length}
-                passingRepoCount={passingRepos}
-                totalScans={totalScans}
               />
 
               <section className="analytics-grid" id="activity">
@@ -773,8 +792,6 @@ export default function ConnectedPage() {
 
               <FindingsTable
                 findings={visibleFindings}
-                search={search}
-                onSearchChange={setSearch}
                 onSelectFinding={setSelectedFinding}
               />
             </>
@@ -840,9 +857,6 @@ export default function ConnectedPage() {
                   <SummaryCards
                     seriousCount={latestCounts.serious}
                     minorCount={latestCounts.minor}
-                    repoCount={scopedRepos.length}
-                    passingRepoCount={passingRepos}
-                    totalScans={totalScans}
                   />
 
                   <section className="analytics-grid" id="activity">
@@ -861,8 +875,6 @@ export default function ConnectedPage() {
 
                   <FindingsTable
                     findings={visibleFindings}
-                    search={search}
-                    onSearchChange={setSearch}
                     onSelectFinding={setSelectedFinding}
                   />
                 </>
@@ -871,7 +883,7 @@ export default function ConnectedPage() {
                   <section className="page-heading" id="repos-overview">
                     <div>
                       <h1>Repositories</h1>
-                      <p className="page-sub">{repos.length} connected repositories</p>
+                      <p className="page-sub">{repos.length} repositories</p>
                     </div>
                     <div className="scan-status">
                       <button
@@ -896,7 +908,7 @@ export default function ConnectedPage() {
                   </section>
 
                   <div className="repos-card-grid">
-                    {repos.map((repo, idx) => {
+                    {repos.map((repo) => {
                       const detail = workspace?.details[repo.id];
                       const counts = repo.lastScan?.counts ?? { serious: 0, minor: 0 };
                       const total = counts.serious + counts.minor;
@@ -904,9 +916,6 @@ export default function ConnectedPage() {
                         <div key={repo.id} className="repo-summary-card">
                           <div className="repo-card-top">
                             <div className="repo-card-title">
-                              <span className={`repo-avatar ${["mint", "coral", "gold"][idx % 3]}`}>
-                                {repo.name.slice(0, 2).toUpperCase()}
-                              </span>
                               <span>{repo.name}</span>
                             </div>
                             <span className={`severity-pill ${total > 0 ? "serious" : "minor"}`}>
@@ -944,8 +953,6 @@ export default function ConnectedPage() {
 
                   <FindingsTable
                     findings={visibleFindings}
-                    search={search}
-                    onSearchChange={setSearch}
                     onSelectFinding={setSelectedFinding}
                   />
                 </>
@@ -983,11 +990,6 @@ export default function ConnectedPage() {
               />
             </>
           )}
-
-          <footer className="page-footer">
-            <span>Otto Security</span>
-            <span>{repos.length} repos · {totalScans} scans</span>
-          </footer>
         </div>
       </main>
 

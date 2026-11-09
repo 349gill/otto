@@ -1,5 +1,4 @@
 import type { ApiFinding } from "../otto-api";
-import { ExternalLinkIcon, SearchIcon } from "./icons";
 
 export type DisplayFinding = ApiFinding & {
   key: string;
@@ -11,8 +10,8 @@ export type DisplayFinding = ApiFinding & {
 
 type FindingsTableProps = {
   findings: DisplayFinding[];
-  search: string;
-  onSearchChange: (value: string) => void;
+  search?: string;
+  onSearchChange?: (value: string) => void;
   onSelectFinding: (finding: DisplayFinding) => void;
 };
 
@@ -29,24 +28,12 @@ function shortCommit(commit?: string | null) {
 
 export default function FindingsTable({
   findings,
-  search,
-  onSearchChange,
   onSelectFinding,
 }: FindingsTableProps) {
   return (
     <section className="panel findings-panel" id="findings">
       <div className="panel-heading findings-heading">
         <h2>Findings</h2>
-        <label className="search-box">
-          <SearchIcon className="w-3.5 h-3.5 text-muted" />
-          <input
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search findings..."
-            aria-label="Search findings"
-          />
-          <kbd>/</kbd>
-        </label>
       </div>
 
       <div className="findings-table" role="table" aria-label="Current repository findings">
@@ -55,16 +42,14 @@ export default function FindingsTable({
           role="row"
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(200px, 2.5fr) minmax(120px, 1fr) 90px 100px 85px 110px 20px",
+            gridTemplateColumns: "minmax(260px, 3.5fr) minmax(140px, 1.5fr) 100px 90px 110px",
           }}
         >
           <span>Vulnerability</span>
           <span>Repository</span>
           <span>Rule</span>
-          <span>Engine</span>
           <span>Severity</span>
           <span>Scan</span>
-          <span />
         </div>
 
         {findings.length > 0 ? (
@@ -76,7 +61,7 @@ export default function FindingsTable({
               role="row"
               style={{
                 display: "grid",
-                gridTemplateColumns: "minmax(200px, 2.5fr) minmax(120px, 1fr) 90px 100px 85px 110px 20px",
+                gridTemplateColumns: "minmax(260px, 3.5fr) minmax(140px, 1.5fr) 100px 90px 110px",
               }}
             >
               <span className="finding-main">
@@ -91,7 +76,6 @@ export default function FindingsTable({
               </span>
 
               <span className="finding-repo">
-                <span className="source-tag code">Code</span>
                 <span>{finding.repoName}</span>
               </span>
 
@@ -100,26 +84,17 @@ export default function FindingsTable({
               </span>
 
               <span>
-                <span className={`source-badge ${finding.source}`}>
-                  {finding.source === "ai" ? "Gemini" : "Static"}
-                </span>
-              </span>
-
-              <span>
                 <span className={`severity-pill ${finding.severity === "serious" ? "serious" : "minor"}`}>
-                  {finding.severity}
+                  {finding.severity === "serious" ? "High Risk" : "Low Risk"}
                 </span>
               </span>
 
               <span className="finding-age">{displayDate(finding.scannedAt)}</span>
-              <span className="row-arrow" aria-hidden="true">
-                <ExternalLinkIcon className="w-3 h-3" />
-              </span>
             </button>
           ))
         ) : (
           <div className="empty-state">
-            {search ? "No findings match your search." : "No open vulnerabilities detected."}
+            No open vulnerabilities detected.
           </div>
         )}
       </div>
