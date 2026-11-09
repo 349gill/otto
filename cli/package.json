@@ -1,0 +1,13 @@
+{
+  "name": "otto-cli",
+  "version": "0.1.0",
+  "description": "CLI for Otto security scanning",
+  "type": "module",
+  "bin": {
+    "otto": "./bin/otto.js"
+  },
+  "files": ["bin"],
+  "dependencies": {
+    "commander": "^13.0.0"
+  }
+}
