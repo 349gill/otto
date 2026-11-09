@@ -22,13 +22,11 @@ const app = express();
 // Trust proxy (ngrok, cloud load balancers, Cloudflare)
 app.set("trust proxy", 1);
 
-app.use(
-  cors({
-    origin: (origin, callback) => callback(null, true),
-    credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "ngrok-skip-browser-warning", "X-Otto-Secret", "Accept"],
-  })
-);
+app.use(cors({
+  origin: [config.frontendOrigin],
+  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization", "X-Otto-Secret", "Accept"]
+}));
 app.use(express.json({ limit: "100kb" }));
 
 // Rate limiters for auth endpoints and resource-heavy operations.
