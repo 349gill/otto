@@ -68,6 +68,8 @@ async function request<T>(path: string, token?: string, init: RequestInit = {}):
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  // Bypass ngrok free tier browser warning interstitial for all API calls
+  headers.set("ngrok-skip-browser-warning", "true");
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -85,6 +87,16 @@ async function request<T>(path: string, token?: string, init: RequestInit = {}):
 }
 
 // Auth
+export async function getGitHubAuthTarget(): Promise<string> {
+  try {
+    const res = await request<{ url: string }>("/auth/github");
+    if (res?.url) return res.url;
+  } catch {
+    /* fallback to direct navigation */
+  }
+  return `${API_BASE_URL}/auth/github`;
+}
+
 export function getGitHubAuthUrl() {
   return `${API_BASE_URL}/auth/github`;
 }
@@ -115,4 +127,19 @@ export function getRepository(id: string, token: string) {
 
 export function triggerScan(token: string, repoId: string) {
   return request<{ status: string; commit: string; findings?: ApiFinding[] }>(`/repos/${encodeURIComponent(repoId)}/scan`, token, { method: "POST" });
+}
+
+// Ad-hoc target scans
+export function targetPortScan(token: string, host: string, authorized: boolean) {
+  return request<{ findings: ApiFinding[]; summary: string }>("/target/port-scan", token, {
+    method: "POST",
+    body: JSON.stringify({ host, authorized }),
+  });
+}
+
+export function targetApiScan(token: string, baseUrl: string, spec: string, authorized: boolean) {
+  return request<{ findings: ApiFinding[]; summary: string }>("/target/api-scan", token, {
+    method: "POST",
+    body: JSON.stringify({ baseUrl, spec, authorized }),
+  });
 }

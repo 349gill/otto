@@ -8,18 +8,37 @@ import { rm } from "node:fs/promises";
 import { config } from "./config.js";
 import { Repo, Scan, User, oid, type Finding } from "./models.js";
 import { gemini, scanWithGemini } from "./gemini.js";
+import { scanExposure } from "./exposure.js";
+import { portScanTarget, apiSpecScan } from "./target.js";
 import { cloneRepo, getDiff, readSource, exec } from "./git.js";
 import { exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment } from "./github.js";
 
 type AuthedRequest = Request & { userId?: string };
 
 const app = express();
-app.use(cors({ origin: config.frontendOrigin }));
+// Trust proxy (ngrok, cloud load balancers, Cloudflare)
+app.set("trust proxy", 1);
+
+app.use(
+  cors({
+    origin: (origin, callback) => callback(null, true),
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "ngrok-skip-browser-warning", "X-Otto-Secret", "Accept"],
+  })
+);
 app.use(express.json({ limit: "100kb" }));
 
 // ---------- rate limiters ----------
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20 });
-const heavyLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 30 });
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  validate: { xForwardedForHeader: false },
+});
+const heavyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  validate: { xForwardedForHeader: false },
+});
 
 // ---------- auth middleware ----------
 function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
@@ -43,7 +62,11 @@ app.get("/auth/github", (_req, res) => {
     redirect_uri: callbackUrl,
     state: randomBytes(16).toString("hex"),
   });
-  res.redirect(`https://github.com/login/oauth/authorize?${params}`);
+  const target = `https://github.com/login/oauth/authorize?${params}`;
+  if (_req.headers.accept?.includes("application/json") || _req.query.format === "json") {
+    return res.json({ url: target });
+  }
+  res.redirect(target);
 });
 
 // ---------- 3. GET /auth/github/callback  (exchange code) ----------
@@ -80,10 +103,23 @@ app.get("/auth/github/callback", authLimiter, async (req, res) => {
       name: ghUser.login,
       avatar: ghUser.avatar_url,
     });
-    res.redirect(`${config.frontendOrigin}/auth/callback#${fragment}`);
+
+    if (req.headers.accept?.includes("application/json") || req.query.format === "json") {
+      return res.json({
+        token,
+        email: user.email || ghUser.email || "",
+        name: ghUser.login,
+        avatar: ghUser.avatar_url,
+      });
+    }
+
+    res.redirect(`${config.frontendOrigin}/#${fragment}`);
   } catch (err: any) {
     console.error("GitHub OAuth error:", err);
-    res.redirect(`${config.frontendOrigin}/auth/callback#error=${encodeURIComponent(err.message)}`);
+    if (req.headers.accept?.includes("application/json") || req.query.format === "json") {
+      return res.status(400).json({ error: err.message || "OAuth failed" });
+    }
+    res.redirect(`${config.frontendOrigin}/#error=${encodeURIComponent(err.message)}`);
   }
 });
 
@@ -318,6 +354,34 @@ app.post("/repos/:id/scan", requireAuth, heavyLimiter, async (req: AuthedRequest
   }
 });
 
+// ---------- Target scans: live port scan + API spec test (ad-hoc, not tied to a repo) ----------
+app.post("/target/port-scan", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
+  try {
+    const host = String(req.body?.host ?? "").trim();
+    const authorized = req.body?.authorized === true;
+    if (!host) return res.status(400).json({ error: "host is required" });
+    console.log(`\n[Otto API] Live port scan requested for: ${host} (authorized=${authorized})`);
+    const result = await portScanTarget(host, authorized);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || String(err) });
+  }
+});
+
+app.post("/target/api-scan", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
+  try {
+    const baseUrl = String(req.body?.baseUrl ?? "").trim();
+    const spec = String(req.body?.spec ?? "");
+    const authorized = req.body?.authorized === true;
+    if (!spec) return res.status(400).json({ error: "spec (OpenAPI JSON) is required" });
+    console.log(`\n[Otto API] API spec scan requested for: ${baseUrl || "(from spec servers)"} (authorized=${authorized})`);
+    const result = await apiSpecScan(baseUrl, spec, authorized);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || String(err) });
+  }
+});
+
 // ---------- 11. POST /setup  (legacy: ingest code + store context) ----------
 app.post("/setup", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
   const url = String(req.body?.url ?? "").trim();
@@ -414,6 +478,17 @@ async function performScan(
     } else {
       console.warn(`[Otto Scan] Warning: GEMINI_API_KEY is not configured.`);
     }
+
+    // 4b. Deterministic port-exposure scan (no Gemini, no Docker) — flags backing
+    //     services (redis, mongo, ...) bound to all interfaces or published to the host.
+    const exposureFindings = scanExposure(files);
+    if (exposureFindings.length) {
+      console.log(`[Otto Scan] Port-exposure check flagged ${exposureFindings.length} finding(s):`);
+      for (const f of exposureFindings) {
+        console.log(`  - [${f.ruleId}] ${f.title} (${f.severity}) in ${f.file}:${f.line}`);
+      }
+    }
+    rawFindings = [...rawFindings, ...exposureFindings];
 
     // 5. Deduplicate findings
     const allFindings = deduplicateFindings(rawFindings);
