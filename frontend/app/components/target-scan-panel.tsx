@@ -105,7 +105,7 @@ export default function TargetScanPanel({
                   <span className={`severity-pill ${isSerious ? "serious" : "minor"}`}>
                     {isSerious ? "SERIOUS" : "MINOR"}
                   </span>
-                  {finding.ruleId && <span className="rule-id" style={{ fontSize: "10px" }}>{finding.ruleId}</span>}
+                  {finding.ruleId && <span className="rule-id">{finding.ruleId}</span>}
                   {finding.file && <code>{finding.file}</code>}
                   <strong>{finding.title}</strong>
                 </div>

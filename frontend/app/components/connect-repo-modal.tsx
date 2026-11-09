@@ -45,7 +45,7 @@ export default function ConnectRepoModal({
           <div>
             <h2 id="setup-title" style={{ margin: 0, fontSize: "16px" }}>Connect repository</h2>
             {setupBusy && (
-              <small style={{ color: "var(--muted)", fontSize: "10px" }}>
+              <small style={{ color: "var(--muted)", fontSize: "11px" }}>
                 Linking in progress: you can close this window at any time.
               </small>
             )}

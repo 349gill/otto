@@ -114,7 +114,20 @@ export default function Sidebar({
             {pentestCount > 0 && <span className="nav-count">{pentestCount}</span>}
           </button>
 
-          {/* 3. REPOSITORIES */}
+          {/* 3. DOCUMENTATION */}
+          <button
+            className={`nav-item ${activeView === "docs" ? "active" : ""}`}
+            onClick={() => {
+              onSelectView("docs");
+              onSelectRepo(null);
+              onCloseMobile?.();
+              scrollToSection("docs");
+            }}
+          >
+            <span className="nav-item-title">Documentation</span>
+          </button>
+
+          {/* 4. REPOSITORIES */}
           <div className="sidebar-section">
             <div className="sidebar-heading">
               <button
@@ -181,19 +194,6 @@ export default function Sidebar({
               })}
             </div>
           </div>
-
-          {/* 4. DOCUMENTATION */}
-          <button
-            className={`nav-item ${activeView === "docs" ? "active" : ""}`}
-            onClick={() => {
-              onSelectView("docs");
-              onSelectRepo(null);
-              onCloseMobile?.();
-              scrollToSection("docs");
-            }}
-          >
-            <span className="nav-item-title">Documentation</span>
-          </button>
         </nav>
 
         <div className="sidebar-bottom">

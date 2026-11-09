@@ -860,7 +860,7 @@ export default function ConnectedPage() {
                           type="button"
                           onClick={() => setSelectedRepoId(null)}
                           className="heading-label-btn"
-                          style={{ fontSize: "10px", color: "var(--muted)" }}
+                          style={{ fontSize: "11px", color: "var(--muted)" }}
                         >
                           All repositories
                         </button>

@@ -46,7 +46,7 @@ export default function FindingDialog({
             <span className={`source-badge ${finding.source}`}>
               {finding.source === "ai" ? "Gemini" : "Static"}
             </span>
-            <span className="rule-id" style={{ fontSize: "10px" }}>
+            <span className="rule-id">
               {finding.ruleId}
             </span>
           </div>
