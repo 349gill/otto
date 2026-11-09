@@ -60,7 +60,7 @@ otto scan --json
 
 ## GitHub Integration & PR Comments
 
-To automatically scan pull requests and receive automated review comments with findings and fixes:
+To automatically scan pull requests and receive automated review comments with findings and fixes, first, install the following GitHub App: https://github.com/apps/otto-security
 
 ### 1. Instant Setup (No Secrets Required)
 
