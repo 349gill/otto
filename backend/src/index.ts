@@ -691,9 +691,27 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
   if (!repo) return res.status(404).json({ error: "Repo not found" });
 
   const user = await User.findById(req.userId);
-  const ghToken = config.githubAppToken || user?.githubToken;
-  if (!ghToken) return res.status(400).json({ error: "No GitHub token. Sign in with GitHub or set GITHUB_APP_TOKEN in backend/.env." });
   if (!repo.githubFullName) return res.status(400).json({ error: "Repo is not connected to GitHub" });
+
+  const [repoOwner, repoName] = repo.githubFullName.split("/");
+
+  // Determine available candidate GitHub tokens, preferring the repo owner's user token if applicable
+  const candidateTokens: string[] = [];
+  if (user?.githubToken && user?.githubLogin === repoOwner) {
+    candidateTokens.push(user.githubToken);
+    if (config.githubAppToken && config.githubAppToken !== user.githubToken) {
+      candidateTokens.push(config.githubAppToken);
+    }
+  } else {
+    if (config.githubAppToken) candidateTokens.push(config.githubAppToken);
+    if (user?.githubToken && user.githubToken !== config.githubAppToken) {
+      candidateTokens.push(user.githubToken);
+    }
+  }
+
+  if (candidateTokens.length === 0) {
+    return res.status(400).json({ error: "No GitHub token. Sign in with GitHub or set GITHUB_APP_TOKEN in backend/.env." });
+  }
 
   const latestScan = await Scan.findOne({ repo: repo._id }).sort({ createdAt: -1 });
   if (!latestScan || latestScan.findings.length === 0) {
@@ -712,72 +730,82 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
   const fixable = findings.filter((f) => f.fix);
   if (fixable.length === 0) return res.status(400).json({ error: "None of the selected findings have a suggested fix" });
 
-  const [repoOwner, repoName] = repo.githubFullName.split("/");
   const pullRequests: { number: number; html_url: string; title: string }[] = [];
   let lastError: Error | null = null;
 
   for (const finding of fixable) {
-    try {
-      const { branch: baseBranch, sha: baseSha } = await getDefaultBranch(ghToken, repoOwner, repoName);
-      const branchName = `otto-fix/${finding.ruleId.toLowerCase()}-${Date.now()}`;
+    let prCreated = false;
+    for (const ghToken of candidateTokens) {
+      try {
+        const { branch: baseBranch, sha: baseSha } = await getDefaultBranch(ghToken, repoOwner, repoName);
+        const branchName = `otto-fix/${finding.ruleId.toLowerCase()}-${Date.now()}`;
 
-      await createBranch(ghToken, repoOwner, repoName, branchName, baseSha);
+        await createBranch(ghToken, repoOwner, repoName, branchName, baseSha);
 
-      const currentContent = await getFileContent(ghToken, repoOwner, repoName, finding.file, baseBranch);
+        const currentContent = await getFileContent(ghToken, repoOwner, repoName, finding.file, baseBranch);
 
-      const updatedContent = await gemini(
-        `Apply this security fix to the file and return ONLY the complete updated file content, no explanation.\n\n` +
-        `File: ${finding.file}\n` +
-        `Fix to apply: ${finding.fix}\n\n` +
-        `Current file content:\n${currentContent}`
-      );
+        const updatedContent = await gemini(
+          `Apply this security fix to the file and return ONLY the complete updated file content, no explanation.\n\n` +
+          `File: ${finding.file}\n` +
+          `Fix to apply: ${finding.fix}\n\n` +
+          `Current file content:\n${currentContent}`
+        );
 
-      const cleanedContent = stripFences(updatedContent);
+        const cleanedContent = stripFences(updatedContent);
 
-      await createOrUpdateFile(
-        ghToken, repoOwner, repoName,
-        finding.file, cleanedContent,
-        `fix: ${finding.title}`, branchName,
-      );
+        await createOrUpdateFile(
+          ghToken, repoOwner, repoName,
+          finding.file, cleanedContent,
+          `fix: ${finding.title}`, branchName,
+        );
 
-      const prTitle = `fix(security): ${finding.title}`;
-      const prBody = [
-        `## Otto Security Fix`,
-        ``,
-        `**Finding:** ${finding.title}`,
-        `**File:** \`${finding.file}\`${finding.line ? ` (line ${finding.line})` : ""}`,
-        `**Severity:** ${finding.severity}`,
-        `**Rule:** \`${finding.ruleId}\``,
-        ``,
-        `### Description`,
-        finding.comment,
-        ``,
-        `### Suggested Remediation`,
-        `\`\`\``,
-        finding.fix,
-        `\`\`\``,
-        ``,
-        `---`,
-        `Automated security remediation by Otto.`,
-      ].join("\n");
+        const prTitle = `fix(security): ${finding.title}`;
+        const prBody = [
+          `## Otto Security Fix`,
+          ``,
+          `**Finding:** ${finding.title}`,
+          `**File:** \`${finding.file}\`${finding.line ? ` (line ${finding.line})` : ""}`,
+          `**Severity:** ${finding.severity}`,
+          `**Rule:** \`${finding.ruleId}\``,
+          ``,
+          `### Description`,
+          finding.comment,
+          ``,
+          `### Suggested Remediation`,
+          `\`\`\``,
+          finding.fix,
+          `\`\`\``,
+          ``,
+          `---`,
+          `Automated security remediation by Otto.`,
+        ].join("\n");
 
-      const pr = await createPullRequest(
-        ghToken, repoOwner, repoName,
-        prTitle, prBody, branchName, baseBranch,
-      );
+        const pr = await createPullRequest(
+          ghToken, repoOwner, repoName,
+          prTitle, prBody, branchName, baseBranch,
+        );
 
-      pullRequests.push({ number: pr.number, html_url: pr.html_url, title: prTitle });
-    } catch (err: any) {
-      console.error(`[Otto] Failed to create fix PR for ${finding.ruleId}:`, err.message || err);
-      lastError = err;
+        pullRequests.push({ number: pr.number, html_url: pr.html_url, title: prTitle });
+        prCreated = true;
+        break;
+      } catch (err: any) {
+        lastError = err;
+        console.error(`[Otto] Attempt with token for ${finding.ruleId} failed:`, err.message || err);
+      }
+    }
+
+    if (!prCreated) {
+      console.error(`[Otto] Failed to create fix PR for ${finding.ruleId}:`, lastError?.message || lastError);
     }
   }
 
   if (pullRequests.length === 0) {
     const rawMsg = lastError?.message || "Failed to create fix PR";
     let userMsg = rawMsg;
-    if (rawMsg.includes("Resource not accessible by integration") || rawMsg.includes("403")) {
-      userMsg = "GitHub permission error (403): Otto App write permissions were recently updated. Please Sign Out and Sign Back In to refresh your token scopes, or install the Otto App at https://github.com/apps/otto-security.";
+    if (rawMsg.includes("401") || rawMsg.includes("Bad credentials")) {
+      userMsg = "GitHub session expired (401 Bad credentials). Please Sign Out and Sign Back In with GitHub to refresh your token.";
+    } else if (rawMsg.includes("Resource not accessible by integration") || rawMsg.includes("403")) {
+      userMsg = `GitHub permission error (403): You do not have write access to create branches or pull requests on ${repo.githubFullName || "this repository"}. Make sure you have push permissions on this repo or install the Otto GitHub App with repository write permissions.`;
     }
     return res.status(500).json({ error: userMsg });
   }
