@@ -171,10 +171,18 @@ export async function createOrUpdateFile(
   }
 
   const putUrl = `${API}/repos/${owner}/${repo}/contents/${filePath}`;
-  const body: Record<string, string> = {
+  const body: Record<string, any> = {
     message,
     content: Buffer.from(content).toString("base64"),
     branch,
+    committer: {
+      name: "otto-security[bot]",
+      email: "353917578+otto-security[bot]@users.noreply.github.com",
+    },
+    author: {
+      name: "otto-security[bot]",
+      email: "353917578+otto-security[bot]@users.noreply.github.com",
+    },
   };
   if (sha) body.sha = sha;
 

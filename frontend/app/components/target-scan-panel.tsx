@@ -36,7 +36,7 @@ export default function TargetScanPanel({
   return (
     <section className="panel target-section" id="target">
       <div className="target-header">
-        <h2>Target scan</h2>
+        <h2>Penetration Testing</h2>
         <label className="target-auth-label">
           <input
             type="checkbox"

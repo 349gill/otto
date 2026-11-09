@@ -224,6 +224,8 @@ export default function ConnectedPage() {
   const [authReady, setAuthReady] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"overview" | "repositories" | "target">("overview");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [authError, setAuthError] = useState("");
   const [pageError, setPageError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -363,6 +365,15 @@ export default function ConnectedPage() {
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
   const selectedName = selectedRepo?.name ?? "All repositories";
   const scopedRepos = selectedRepo ? [selectedRepo] : repos;
+
+  const breadcrumbName =
+    activeView === "overview"
+      ? "Overview (Past 30 Days)"
+      : activeView === "target"
+      ? "Penetration Testing"
+      : selectedRepo
+      ? selectedRepo.name
+      : "Repositories";
 
   const latestCounts = scopedRepos.reduce(
     (total, repo) => ({
@@ -539,9 +550,13 @@ export default function ConnectedPage() {
     setSetupBusy(fullName);
     setSetupError("");
     try {
-      await connectRepo(token, fullName);
+      const res = await connectRepo(token, fullName);
       const updated = await loadWorkspace(token);
       setWorkspace(updated);
+      if (res && res.id) {
+        setSelectedRepoId(res.id);
+        setActiveView("repositories");
+      }
       setSetupOpen(false);
       setScanSuccess(true);
       setTimeout(() => setScanSuccess(false), 4500);
@@ -615,26 +630,31 @@ export default function ConnectedPage() {
         previewMode={previewMode}
         repos={repos}
         selectedRepoId={selectedRepoId}
+        activeView={activeView}
         allFindingsCount={allFindings.length}
-        vulnFindingsCount={vulnFindings.length}
         portFindingsCount={portFindings.length}
-        findingFilter={findingFilter}
-        onSelectRepo={setSelectedRepoId}
+        onSelectView={setActiveView}
+        onSelectRepo={(id) => {
+          setSelectedRepoId(id);
+          if (id !== null) setActiveView("repositories");
+        }}
         onOpenConnectModal={() => {
           setSetupError("");
           setSetupOpen(true);
         }}
-        onSetFindingFilter={setFindingFilter}
         onSignOut={handleSignOut}
+        isMobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
       />
 
       <main className="main-area" id="overview">
         <Topbar
-          selectedName={selectedName}
+          selectedName={breadcrumbName}
           theme={theme}
           previewMode={previewMode}
           onToggleTheme={toggleTheme}
           onSignOut={handleSignOut}
+          onToggleMobileNav={() => setMobileNavOpen((prev) => !prev)}
         />
 
         {scanSuccess && (
@@ -644,13 +664,13 @@ export default function ConnectedPage() {
                 <CheckIcon className="w-4 h-4" />
               </div>
               <div>
-                <strong>Scan completed</strong>
-                <p>Code and network vulnerabilities analyzed.</p>
+                <strong>Operation completed</strong>
+                <p>Repository status and security findings updated.</p>
               </div>
               <button
                 className="scan-success-close"
                 onClick={() => setScanSuccess(false)}
-                aria-label="Dismiss scan notification"
+                aria-label="Dismiss notification"
               >
                 <CloseIcon className="w-3.5 h-3.5" />
               </button>
@@ -659,55 +679,39 @@ export default function ConnectedPage() {
         )}
 
         <div className="page-content">
-          <section className="page-heading">
-            <div>
-              <h1>{selectedRepo ? selectedName : "Overview"}</h1>
-              <p className="page-sub">
-                {selectedRepo
-                  ? `${selectedRepo.githubFullName || selectedRepo.url} (${
-                      workspace?.details[selectedRepo.id]?.repo.branch ?? "HEAD"
-                    })`
-                  : `${repos.length} monitored repositories`}
-              </p>
+          {/* Active Operation Progress Banner */}
+          {setupBusy && (
+            <div className="active-loading-banner" role="status">
+              <div className="loading-spinner-ring" />
+              <div className="loading-banner-text">
+                <strong>Connecting repository:</strong> Linking <code>{setupBusy}</code> and publishing initial vulnerability findings...
+              </div>
             </div>
-            <div className="scan-status">
-              {selectedRepo && (
-                <>
-                  <button
-                    className="scan-trigger"
-                    disabled={scanning}
-                    onClick={() => handleTriggerScan(selectedRepo.id)}
-                    aria-label="Scan repository now"
-                  >
-                    <PlayIcon className="w-3 h-3 inline-block mr-1" />
-                    {scanning ? "Scanning..." : "Scan now"}
-                  </button>
-                  <button
-                    className="refresh-button"
-                    title="Disconnect repository"
-                    style={{ color: "var(--serious)" }}
-                    onClick={() => handleDisconnectRepo(selectedRepo.id)}
-                    aria-label="Disconnect repository"
-                  >
-                    <CloseIcon className="w-3.5 h-3.5" />
-                  </button>
-                </>
-              )}
-              <span className="scan-status-dot" aria-hidden="true" />
-              <span>
-                Latest: <strong>{displayDate(latestScanDate)}</strong>
-              </span>
-              <button
-                className="refresh-button"
-                aria-label="Refresh workspace data"
-                title="Refresh from backend"
-                disabled={refreshing}
-                onClick={refreshWorkspace}
-              >
-                <RefreshIcon className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
-              </button>
+          )}
+          {scanning && (
+            <div className="active-loading-banner" role="status">
+              <div className="loading-spinner-ring" />
+              <div className="loading-banner-text">
+                <strong>Scanning repository:</strong> Analyzing <code>{selectedRepo?.name}</code> with Gemini AI...
+              </div>
             </div>
-          </section>
+          )}
+          {targetBusy && (
+            <div className="active-loading-banner" role="status">
+              <div className="loading-spinner-ring" />
+              <div className="loading-banner-text">
+                <strong>{targetBusy === "port" ? "Port Scan" : "API Spec Scan"} running:</strong> Probing network targets...
+              </div>
+            </div>
+          )}
+          {refreshing && (
+            <div className="active-loading-banner" role="status">
+              <div className="loading-spinner-ring" />
+              <div className="loading-banner-text">
+                <strong>Refreshing workspace...</strong> Updating security findings...
+              </div>
+            </div>
+          )}
 
           {pageError && (
             <div className="page-error" role="alert">
@@ -718,51 +722,267 @@ export default function ConnectedPage() {
             </div>
           )}
 
-          <SummaryCards
-            seriousCount={latestCounts.serious}
-            minorCount={latestCounts.minor}
-            repoCount={scopedRepos.length}
-            passingRepoCount={passingRepos}
-            totalScans={totalScans}
-          />
+          {/* VIEW 1: OVERVIEW */}
+          {activeView === "overview" && (
+            <>
+              <section className="page-heading" id="overview">
+                <div>
+                  <h1>Overview</h1>
+                  <p className="page-sub">
+                    Past 30-day vulnerabilities across {repos.length} monitored repositories
+                  </p>
+                </div>
+                <div className="scan-status">
+                  <span className="scan-status-dot" aria-hidden="true" />
+                  <span>
+                    Latest scan: <strong>{displayDate(latestScanDate)}</strong>
+                  </span>
+                  <button
+                    className="refresh-button"
+                    aria-label="Refresh workspace data"
+                    title="Refresh from backend"
+                    disabled={refreshing}
+                    onClick={refreshWorkspace}
+                  >
+                    <RefreshIcon className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+              </section>
 
-          <section className="analytics-grid" id="activity">
-            <ActivityChart
-              chartHistory={chartHistory}
-              chartMaximum={chartMaximum}
-              selectedName={selectedName}
-            />
-            <ExposureBreakdown
-              seriousCount={latestCounts.serious}
-              minorCount={latestCounts.minor}
-              passingRepoCount={passingRepos}
-              repoCount={scopedRepos.length}
-            />
-          </section>
+              <SummaryCards
+                seriousCount={latestCounts.serious}
+                minorCount={latestCounts.minor}
+                repoCount={scopedRepos.length}
+                passingRepoCount={passingRepos}
+                totalScans={totalScans}
+              />
 
-          <FindingsTable
-            findings={visibleFindings}
-            search={search}
-            onSearchChange={setSearch}
-            onSelectFinding={setSelectedFinding}
-          />
+              <section className="analytics-grid" id="activity">
+                <ActivityChart
+                  chartHistory={chartHistory}
+                  chartMaximum={chartMaximum}
+                  selectedName={selectedName}
+                />
+                <ExposureBreakdown
+                  seriousCount={latestCounts.serious}
+                  minorCount={latestCounts.minor}
+                  passingRepoCount={passingRepos}
+                  repoCount={scopedRepos.length}
+                />
+              </section>
 
-          <TargetScanPanel
-            targetAuthorized={targetAuthorized}
-            targetHost={targetHost}
-            apiBaseUrl={apiBaseUrl}
-            apiSpec={apiSpec}
-            targetBusy={targetBusy}
-            targetError={targetError}
-            targetSummary={targetSummary}
-            targetFindings={targetFindings}
-            onAuthorizeChange={setTargetAuthorized}
-            onTargetHostChange={setTargetHost}
-            onApiBaseUrlChange={setApiBaseUrl}
-            onApiSpecChange={setApiSpec}
-            onRunPortScan={runTargetPortScan}
-            onRunApiScan={runTargetApiScan}
-          />
+              <FindingsTable
+                findings={visibleFindings}
+                search={search}
+                onSearchChange={setSearch}
+                onSelectFinding={setSelectedFinding}
+              />
+            </>
+          )}
+
+          {/* VIEW 2: REPOSITORIES */}
+          {activeView === "repositories" && (
+            <>
+              {selectedRepo ? (
+                <>
+                  <section className="page-heading" id="repo-detail">
+                    <div>
+                      <div style={{ marginBottom: "6px" }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRepoId(null)}
+                          className="heading-label-btn"
+                          style={{ fontSize: "10px", color: "var(--muted)" }}
+                        >
+                          ← All repositories
+                        </button>
+                      </div>
+                      <h1>{selectedRepo.name}</h1>
+                      <p className="page-sub">
+                        {selectedRepo.githubFullName || selectedRepo.url} (branch: {workspace?.details[selectedRepo.id]?.repo.branch ?? "HEAD"})
+                      </p>
+                    </div>
+                    <div className="scan-status">
+                      <button
+                        className="scan-trigger"
+                        disabled={scanning}
+                        onClick={() => handleTriggerScan(selectedRepo.id)}
+                        aria-label="Scan repository now"
+                      >
+                        <PlayIcon className="w-3 h-3 inline-block mr-1" />
+                        {scanning ? "Scanning..." : "Scan now"}
+                      </button>
+                      <button
+                        className="refresh-button"
+                        title="Disconnect repository"
+                        style={{ color: "var(--serious)" }}
+                        onClick={() => handleDisconnectRepo(selectedRepo.id)}
+                        aria-label="Disconnect repository"
+                      >
+                        <CloseIcon className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="scan-status-dot" aria-hidden="true" />
+                      <span>
+                        Latest scan: <strong>{displayDate(latestScanDate)}</strong>
+                      </span>
+                      <button
+                        className="refresh-button"
+                        aria-label="Refresh workspace data"
+                        title="Refresh from backend"
+                        disabled={refreshing}
+                        onClick={refreshWorkspace}
+                      >
+                        <RefreshIcon className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                      </button>
+                    </div>
+                  </section>
+
+                  <SummaryCards
+                    seriousCount={latestCounts.serious}
+                    minorCount={latestCounts.minor}
+                    repoCount={scopedRepos.length}
+                    passingRepoCount={passingRepos}
+                    totalScans={totalScans}
+                  />
+
+                  <section className="analytics-grid" id="activity">
+                    <ActivityChart
+                      chartHistory={chartHistory}
+                      chartMaximum={chartMaximum}
+                      selectedName={selectedName}
+                    />
+                    <ExposureBreakdown
+                      seriousCount={latestCounts.serious}
+                      minorCount={latestCounts.minor}
+                      passingRepoCount={passingRepos}
+                      repoCount={scopedRepos.length}
+                    />
+                  </section>
+
+                  <FindingsTable
+                    findings={visibleFindings}
+                    search={search}
+                    onSearchChange={setSearch}
+                    onSelectFinding={setSelectedFinding}
+                  />
+                </>
+              ) : (
+                <>
+                  <section className="page-heading" id="repos-overview">
+                    <div>
+                      <h1>Repositories</h1>
+                      <p className="page-sub">{repos.length} connected repositories</p>
+                    </div>
+                    <div className="scan-status">
+                      <button
+                        className="scan-trigger"
+                        onClick={() => {
+                          setSetupError("");
+                          setSetupOpen(true);
+                        }}
+                      >
+                        + Connect repository
+                      </button>
+                      <button
+                        className="refresh-button"
+                        aria-label="Refresh workspace data"
+                        title="Refresh from backend"
+                        disabled={refreshing}
+                        onClick={refreshWorkspace}
+                      >
+                        <RefreshIcon className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                      </button>
+                    </div>
+                  </section>
+
+                  <div className="repos-card-grid">
+                    {repos.map((repo, idx) => {
+                      const detail = workspace?.details[repo.id];
+                      const counts = repo.lastScan?.counts ?? { serious: 0, minor: 0 };
+                      const total = counts.serious + counts.minor;
+                      return (
+                        <div key={repo.id} className="repo-summary-card">
+                          <div className="repo-card-top">
+                            <div className="repo-card-title">
+                              <span className={`repo-avatar ${["mint", "coral", "gold"][idx % 3]}`}>
+                                {repo.name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <span>{repo.name}</span>
+                            </div>
+                            <span className={`severity-pill ${total > 0 ? "serious" : "minor"}`}>
+                              {total > 0 ? `${total} vulns` : "clean"}
+                            </span>
+                          </div>
+                          <div className="repo-card-meta">
+                            <div>{repo.githubFullName || repo.url}</div>
+                            <div style={{ marginTop: "4px" }}>
+                              Commit: <code>{detail?.repo.lastScannedCommit?.slice(0, 7) || "None"}</code> · {displayDate(detail?.current?.scannedAt || repo.lastScan?.at)}
+                            </div>
+                          </div>
+                          <div className="repo-card-actions">
+                            <button
+                              className="scan-trigger"
+                              onClick={() => {
+                                setSelectedRepoId(repo.id);
+                                setActiveView("repositories");
+                              }}
+                            >
+                              View details
+                            </button>
+                            <button
+                              className="scan-trigger"
+                              disabled={scanning}
+                              onClick={() => handleTriggerScan(repo.id)}
+                            >
+                              Scan now
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <FindingsTable
+                    findings={visibleFindings}
+                    search={search}
+                    onSearchChange={setSearch}
+                    onSelectFinding={setSelectedFinding}
+                  />
+                </>
+              )}
+            </>
+          )}
+
+          {/* VIEW 3: PENETRATION TESTING */}
+          {activeView === "target" && (
+            <>
+              <section className="page-heading" id="target">
+                <div>
+                  <h1>Penetration Testing</h1>
+                  <p className="page-sub">
+                    Port exposure probes and OpenAPI specification compliance testing
+                  </p>
+                </div>
+              </section>
+
+              <TargetScanPanel
+                targetAuthorized={targetAuthorized}
+                targetHost={targetHost}
+                apiBaseUrl={apiBaseUrl}
+                apiSpec={apiSpec}
+                targetBusy={targetBusy}
+                targetError={targetError}
+                targetSummary={targetSummary}
+                targetFindings={targetFindings}
+                onAuthorizeChange={setTargetAuthorized}
+                onTargetHostChange={setTargetHost}
+                onApiBaseUrlChange={setApiBaseUrl}
+                onApiSpecChange={setApiSpec}
+                onRunPortScan={runTargetPortScan}
+                onRunApiScan={runTargetApiScan}
+              />
+            </>
+          )}
 
           <footer className="page-footer">
             <span>Otto Security</span>

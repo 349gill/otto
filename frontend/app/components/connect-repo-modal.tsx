@@ -31,9 +31,7 @@ export default function ConnectRepoModal({
   return (
     <div
       className="dialog-backdrop"
-      onClick={() => {
-        if (setupBusy === null) onClose();
-      }}
+      onClick={onClose}
     >
       <section
         className="finding-dialog setup-dialog"
@@ -44,11 +42,17 @@ export default function ConnectRepoModal({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="dialog-top">
-          <h2 id="setup-title" style={{ margin: 0, fontSize: "16px" }}>Connect repository</h2>
+          <div>
+            <h2 id="setup-title" style={{ margin: 0, fontSize: "16px" }}>Connect repository</h2>
+            {setupBusy && (
+              <small style={{ color: "var(--muted)", fontSize: "10px" }}>
+                Linking in progress: you can close this window at any time.
+              </small>
+            )}
+          </div>
           <button
             onClick={onClose}
             aria-label="Close dialog"
-            disabled={setupBusy !== null}
             className="dialog-close-btn"
           >
             <CloseIcon className="w-4 h-4" />

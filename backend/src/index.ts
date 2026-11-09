@@ -215,7 +215,19 @@ ${sourceDump}`);
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-    res.status(201).json({ id: repo._id, name: repo.name, filesIngested: files.length, commit: cloned.head });
+
+    // Immediately run initial vulnerability scan so findings are published upon connection
+    console.log(`[Otto Connect] Running initial vulnerability scan for newly linked repo ${repo.name}...`);
+    const initialScan = await scanClonedRepo(repo, dir, files, cloned.head, null, null);
+    console.log(`[Otto Connect] Initial scan complete: ${initialScan.findings.length} findings (${initialScan.counts.serious} serious, ${initialScan.counts.minor} minor).`);
+
+    res.status(201).json({
+      id: repo._id,
+      name: repo.name,
+      filesIngested: files.length,
+      commit: cloned.head,
+      scan: initialScan,
+    });
   } finally {
     if (dir) await rm(dir, { recursive: true, force: true });
   }
@@ -427,6 +439,111 @@ ${sourceDump}`);
   }
 });
 
+// Core scan analysis orchestrating diffing, Gemini AI review, static checks, and DB storage.
+async function scanClonedRepo(
+  repo: any,
+  dir: string,
+  files: Array<{ path: string; content: string }>,
+  commit: string,
+  prNumber: number | null,
+  ref: string | null,
+) {
+  // 1. Diff (if lastScannedCommit is equal to HEAD, diff against parent HEAD~1 or full tree)
+  let diff = (await getDiff(dir, repo.lastScannedCommit)).slice(0, 80_000);
+  if (!diff.trim()) {
+    console.log(`[Otto Scan] No diff against previous baseline. Generating diff from latest commit...`);
+    const headDiff = await exec("git", ["diff", "--unified=3", "HEAD~1", "HEAD"], { cwd: dir });
+    diff = headDiff.code === 0 && headDiff.out.trim() ? headDiff.out.slice(0, 80_000) : (await getDiff(dir, null)).slice(0, 80_000);
+  }
+  console.log(`[Otto Scan] Commit diff ready (${diff.length} bytes).`);
+
+  // 2. Pure AI Vulnerability Scan (Gemini)
+  console.log(`[Otto Scan] Running Gemini AI security vulnerability scan (${config.model})...`);
+  let rawFindings: Finding[] = [];
+  if (config.geminiKey) {
+    try {
+      rawFindings = await scanWithGemini({
+        context: repo.context ?? "",
+        diff,
+        files,
+      });
+      console.log(`[Otto Scan] Gemini AI identified ${rawFindings.length} vulnerability finding(s):`);
+      for (const f of rawFindings) {
+        console.log(`  - [${f.ruleId}] ${f.title} (${f.severity}) in ${f.file}:${f.line}`);
+      }
+    } catch (geminiErr: any) {
+      console.error(`[Otto Scan] Gemini analysis error:`, geminiErr.message || geminiErr);
+    }
+  } else {
+    console.warn(`[Otto Scan] Warning: GEMINI_API_KEY is not configured.`);
+  }
+
+  // Static port-exposure check flagging backing services bound to all interfaces.
+  const exposureFindings = scanExposure(files);
+  if (exposureFindings.length) {
+    console.log(`[Otto Scan] Port-exposure check flagged ${exposureFindings.length} finding(s):`);
+    for (const f of exposureFindings) {
+      console.log(`  - [${f.ruleId}] ${f.title} (${f.severity}) in ${f.file}:${f.line}`);
+    }
+  }
+  rawFindings = [...rawFindings, ...exposureFindings];
+
+  // 3. Deduplicate findings
+  const allFindings = deduplicateFindings(rawFindings);
+  if (allFindings.length !== rawFindings.length) {
+    console.log(`[Otto Scan] Total deduplicated findings: ${allFindings.length}`);
+  }
+
+  // 4. Compute counts
+  const counts = {
+    serious: allFindings.filter((f) => f.severity === "serious").length,
+    minor: allFindings.filter((f) => f.severity === "minor").length,
+    info: allFindings.filter((f) => f.severity === "info").length,
+  };
+  const status = allFindings.length > 0 ? "fail" : "pass";
+  console.log(`[Otto Scan] Final Status: ${status.toUpperCase()} (${counts.serious} serious, ${counts.minor} minor, ${counts.info} info)`);
+
+  // 5. Store scan
+  await Scan.create({
+    repo: repo._id,
+    commit,
+    status,
+    findings: allFindings,
+    counts,
+    prNumber,
+    ref: ref ?? "",
+  });
+  console.log(`[Otto Scan] Scan record saved to MongoDB for repo ${repo.name}.`);
+
+  // Update repo's last scanned commit
+  repo.lastScannedCommit = commit;
+  await repo.save();
+
+  // 6. Post PR comment if applicable
+  if (prNumber && allFindings.length > 0) {
+    try {
+      console.log(`[Otto Scan] Posting PR comment to GitHub PR #${prNumber}...`);
+      const owner = await User.findById(repo.owner);
+      const ghToken = config.githubAppToken || owner?.githubToken;
+      if (ghToken && repo.githubFullName) {
+        const [repoOwner, repoName] = repo.githubFullName.split("/");
+        const commentBody = formatPRComment(allFindings, commit, counts);
+        await postPRComment(ghToken, repoOwner, repoName, prNumber, commentBody);
+        console.log(`[Otto Scan] PR comment posted successfully.`);
+      }
+    } catch (err) {
+      console.error("[Otto Scan] Failed to post PR comment:", err);
+    }
+  }
+
+  return {
+    status,
+    commit,
+    counts,
+    findings: allFindings,
+  };
+}
+
 // Core scan pipeline orchestrating clone, static analysis, exposure check, and PR notification.
 async function performScan(
   repo: any,
@@ -448,107 +565,14 @@ async function performScan(
     const commit = commitSha || cloned.head;
     console.log(`[Otto Scan] Cloned successfully. Target commit: ${commit.slice(0, 7)}`);
 
-    // 2. Diff (if lastScannedCommit is equal to HEAD, diff against parent HEAD~1 or full tree)
-    let diff = (await getDiff(dir, repo.lastScannedCommit)).slice(0, 80_000);
-    if (!diff.trim()) {
-      console.log(`[Otto Scan] No diff against previous baseline. Generating diff from latest commit...`);
-      const headDiff = await exec("git", ["diff", "--unified=3", "HEAD~1", "HEAD"], { cwd: dir });
-      diff = headDiff.code === 0 && headDiff.out.trim() ? headDiff.out.slice(0, 80_000) : (await getDiff(dir, null)).slice(0, 80_000);
-    }
-    console.log(`[Otto Scan] Commit diff ready (${diff.length} bytes).`);
-
-    // 3. Read source files
+    // 2. Read source files
     console.log(`[Otto Scan] Reading source files in repo...`);
     const { files } = await readSource(dir);
     console.log(`[Otto Scan] Loaded ${files.length} source file(s) for analysis.`);
 
-    // 4. Pure AI Vulnerability Scan (Gemini)
-    console.log(`[Otto Scan] Running Gemini AI security vulnerability scan (${config.model})...`);
-    let rawFindings: Finding[] = [];
-    if (config.geminiKey) {
-      try {
-        rawFindings = await scanWithGemini({
-          context: repo.context ?? "",
-          diff,
-          files,
-        });
-        console.log(`[Otto Scan] Gemini AI identified ${rawFindings.length} vulnerability finding(s):`);
-        for (const f of rawFindings) {
-          console.log(`  - [${f.ruleId}] ${f.title} (${f.severity}) in ${f.file}:${f.line}`);
-        }
-      } catch (geminiErr: any) {
-        console.error(`[Otto Scan] Gemini analysis error:`, geminiErr.message || geminiErr);
-      }
-    } else {
-      console.warn(`[Otto Scan] Warning: GEMINI_API_KEY is not configured.`);
-    }
-
-    // Static port-exposure check flagging backing services bound to all interfaces.
-    const exposureFindings = scanExposure(files);
-    if (exposureFindings.length) {
-      console.log(`[Otto Scan] Port-exposure check flagged ${exposureFindings.length} finding(s):`);
-      for (const f of exposureFindings) {
-        console.log(`  - [${f.ruleId}] ${f.title} (${f.severity}) in ${f.file}:${f.line}`);
-      }
-    }
-    rawFindings = [...rawFindings, ...exposureFindings];
-
-    // 5. Deduplicate findings
-    const allFindings = deduplicateFindings(rawFindings);
-    if (allFindings.length !== rawFindings.length) {
-      console.log(`[Otto Scan] Total deduplicated findings: ${allFindings.length}`);
-    }
-
-    // 6. Compute counts
-    const counts = {
-      serious: allFindings.filter((f) => f.severity === "serious").length,
-      minor: allFindings.filter((f) => f.severity === "minor").length,
-      info: allFindings.filter((f) => f.severity === "info").length,
-    };
-    const status = allFindings.length > 0 ? "fail" : "pass";
-    console.log(`[Otto Scan] Final Status: ${status.toUpperCase()} (${counts.serious} serious, ${counts.minor} minor, ${counts.info} info)`);
-
-    // 7. Store scan
-    await Scan.create({
-      repo: repo._id,
-      commit,
-      status,
-      findings: allFindings,
-      counts,
-      prNumber,
-      ref: ref ?? "",
-    });
-    console.log(`[Otto Scan] Scan record saved to MongoDB for repo ${repo.name}.`);
-
-    // Update repo's last scanned commit
-    repo.lastScannedCommit = commit;
-    await repo.save();
-
-    // 9. Post PR comment if applicable
-    if (prNumber && allFindings.length > 0) {
-      try {
-        console.log(`[Otto Scan] Posting PR comment to GitHub PR #${prNumber}...`);
-        const owner = await User.findById(repo.owner);
-        const ghToken = config.githubAppToken || owner?.githubToken;
-        if (ghToken && repo.githubFullName) {
-          const [repoOwner, repoName] = repo.githubFullName.split("/");
-          const commentBody = formatPRComment(allFindings, commit, counts);
-          await postPRComment(ghToken, repoOwner, repoName, prNumber, commentBody);
-          console.log(`[Otto Scan] PR comment posted successfully.`);
-        }
-      } catch (err) {
-        console.error("[Otto Scan] Failed to post PR comment:", err);
-      }
-    }
-
+    const result = await scanClonedRepo(repo, dir, files, commit, prNumber, ref);
     console.log(`======================================================\n`);
-
-    return {
-      status,
-      commit,
-      counts,
-      findings: allFindings,
-    };
+    return result;
   } finally {
     if (dir) await rm(dir, { recursive: true, force: true });
   }
@@ -675,25 +699,29 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
         `fix: ${finding.title}`, branchName,
       );
 
-      const prTitle = `fix: ${finding.title}`;
+      const prTitle = `fix(security): ${finding.title}`;
       const prBody = [
-        `## Otto Security Fix`,
+        `<p align="left"><img src="https://avatars.githubusercontent.com/in/5662520?v=4" width="48" height="48" alt="Otto Security" style="border-radius: 6px;" /></p>`,
+        ``,
+        `## 🤖 Otto Security Fix`,
+        ``,
+        `> Automated security remediation opened by **[Otto Security](https://github.com/apps/otto-security)** (\`otto-security[bot]\`).`,
         ``,
         `**Finding:** ${finding.title}`,
         `**File:** \`${finding.file}\`${finding.line ? ` (line ${finding.line})` : ""}`,
-        `**Severity:** ${finding.severity}`,
-        `**Rule:** ${finding.ruleId}`,
+        `**Severity:** \`${finding.severity}\``,
+        `**Rule:** \`${finding.ruleId}\``,
         ``,
-        `### Description`,
+        `### Security Impact`,
         finding.comment,
         ``,
-        `### Suggested Fix`,
+        `### Applied Remediation`,
         `\`\`\``,
         finding.fix,
         `\`\`\``,
         ``,
         `---`,
-        `*Created by Otto Security*`,
+        `*Remediated and opened by [Otto Security](https://github.com/apps/otto-security) · Bot \`otto-security[bot]\`*`,
       ].join("\n");
 
       const pr = await createPullRequest(
@@ -712,7 +740,7 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
     const rawMsg = lastError?.message || "Failed to create fix PR";
     let userMsg = rawMsg;
     if (rawMsg.includes("Resource not accessible by integration") || rawMsg.includes("403")) {
-      userMsg = "GitHub permission error: Your GitHub App needs 'Contents: Read and write' and 'Pull requests: Read and write' permissions. Alternatively, set GITHUB_APP_TOKEN in backend/.env with a Personal Access Token with repo scope.";
+      userMsg = "GitHub permission error (403): Otto App write permissions were recently updated. Please Sign Out and Sign Back In to refresh your token scopes, or install the Otto App at https://github.com/apps/otto-security.";
     }
     return res.status(500).json({ error: userMsg });
   }
