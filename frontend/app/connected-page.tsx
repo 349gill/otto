@@ -17,6 +17,7 @@ import {
   type GitHubRepo,
   type ScanHistoryPoint,
 } from "./otto-api";
+import { targetPortScan, targetApiScan } from "./otto-api";
 
 type WorkspaceData = {
   repos: ApiRepo[];
@@ -126,6 +127,15 @@ export default function ConnectedPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [search, setSearch] = useState("");
+  const [findingFilter, setFindingFilter] = useState<"all" | "vuln" | "port">("all");
+  const [targetHost, setTargetHost] = useState("");
+  const [apiBaseUrl, setApiBaseUrl] = useState("");
+  const [apiSpec, setApiSpec] = useState("");
+  const [targetAuthorized, setTargetAuthorized] = useState(false);
+  const [targetFindings, setTargetFindings] = useState<ApiFinding[]>([]);
+  const [targetSummary, setTargetSummary] = useState("");
+  const [targetBusy, setTargetBusy] = useState(false);
+  const [targetError, setTargetError] = useState("");
 
   // Connect repository modal
   const [setupOpen, setSetupOpen] = useState(false);
@@ -284,11 +294,19 @@ export default function ConnectedPage() {
     })
     .sort((left, right) => new Date(right.scannedAt).getTime() - new Date(left.scannedAt).getTime());
 
-  const visibleFindings = allFindings.filter((finding) =>
-    `${finding.title} ${finding.comment} ${finding.file} ${finding.fix} ${finding.ruleId} ${finding.repoName}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
+  const isPortFinding = (finding: DisplayFinding) => (finding.ruleId ?? "").toUpperCase().startsWith("PORT");
+  const portFindings = allFindings.filter(isPortFinding);
+  const vulnFindings = allFindings.filter((finding) => !isPortFinding(finding));
+
+  const visibleFindings = allFindings
+    .filter((finding) =>
+      findingFilter === "all" ? true : findingFilter === "port" ? isPortFinding(finding) : !isPortFinding(finding),
+    )
+    .filter((finding) =>
+      `${finding.title} ${finding.comment} ${finding.file} ${finding.fix} ${finding.ruleId} ${finding.repoName}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+    );
 
   async function handleGitHubLogin() {
     try {
@@ -311,6 +329,40 @@ export default function ConnectedPage() {
       if (message.toLowerCase().includes("token")) handleSignOut();
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function runTargetPortScan() {
+    if (!token || targetBusy) return;
+    if (!targetAuthorized) return setTargetError("Confirm you are authorized to scan this target.");
+    if (!targetHost.trim()) return setTargetError("Enter a host or IP.");
+    setTargetBusy(true);
+    setTargetError("");
+    try {
+      const result = await targetPortScan(token, targetHost.trim(), true);
+      setTargetFindings(result.findings);
+      setTargetSummary(result.summary);
+    } catch (error) {
+      setTargetError(error instanceof Error ? error.message : "Port scan failed.");
+    } finally {
+      setTargetBusy(false);
+    }
+  }
+
+  async function runTargetApiScan() {
+    if (!token || targetBusy) return;
+    if (!targetAuthorized) return setTargetError("Confirm you are authorized to test this API.");
+    if (!apiSpec.trim()) return setTargetError("Paste an OpenAPI JSON spec.");
+    setTargetBusy(true);
+    setTargetError("");
+    try {
+      const result = await targetApiScan(token, apiBaseUrl.trim(), apiSpec, true);
+      setTargetFindings(result.findings);
+      setTargetSummary(result.summary);
+    } catch (error) {
+      setTargetError(error instanceof Error ? error.message : "API scan failed.");
+    } finally {
+      setTargetBusy(false);
     }
   }
 
@@ -451,16 +503,45 @@ export default function ConnectedPage() {
           </button>
           <button
             className="nav-item"
-            onClick={() => document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" })}
+            onClick={() => {
+              setFindingFilter("all");
+              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
+            }}
           >
             <span className="nav-glyph">⌕</span> Findings{" "}
             <span className="nav-count">{allFindings.length}</span>
+          </button>
+          <button
+            className={`nav-item${findingFilter === "vuln" ? " active" : ""}`}
+            onClick={() => {
+              setFindingFilter("vuln");
+              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
+            }}
+          >
+            <span className="nav-glyph">⚠</span> Vulnerability scan{" "}
+            <span className="nav-count">{vulnFindings.length}</span>
+          </button>
+          <button
+            className={`nav-item${findingFilter === "port" ? " active" : ""}`}
+            onClick={() => {
+              setFindingFilter("port");
+              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
+            }}
+          >
+            <span className="nav-glyph">⇄</span> Port scan{" "}
+            <span className="nav-count">{portFindings.length}</span>
           </button>
           <button
             className="nav-item"
             onClick={() => document.getElementById("activity")?.scrollIntoView({ behavior: "smooth" })}
           >
             <span className="nav-glyph">↗</span> Activity
+          </button>
+          <button
+            className="nav-item"
+            onClick={() => document.getElementById("target")?.scrollIntoView({ behavior: "smooth" })}
+          >
+            <span className="nav-glyph">◎</span> Target scan
           </button>
         </nav>
 
@@ -939,6 +1020,77 @@ export default function ConnectedPage() {
               <span>{visibleFindings.length} findings from latest scans</span>
               <span className="findings-footer-note">Select any finding to inspect evidence, rule, and suggested fix.</span>
             </div>
+          </section>
+
+          <section className="panel" id="target" style={{ marginTop: "1.5rem", padding: "1.5rem" }}>
+            <div style={{ marginBottom: "0.75rem" }}>
+              <h2 style={{ margin: 0 }}>Scan a target</h2>
+              <p style={{ margin: "0.25rem 0 0", opacity: 0.7 }}>
+                Ad-hoc port scan or API-spec test against a host you own or are authorized to test.
+              </p>
+            </div>
+
+            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0.75rem 0" }}>
+              <input
+                type="checkbox"
+                checked={targetAuthorized}
+                onChange={(event) => setTargetAuthorized(event.target.checked)}
+              />
+              <span>I own or am authorized to test this target</span>
+            </label>
+
+            <div style={{ display: "grid", gap: "1.5rem", gridTemplateColumns: "1fr 1fr" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <h3 style={{ margin: 0 }}>Port scan</h3>
+                <input
+                  placeholder="host or IP (e.g. 127.0.0.1)"
+                  value={targetHost}
+                  onChange={(event) => setTargetHost(event.target.value)}
+                  style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--border, #3334)", background: "transparent", color: "inherit" }}
+                />
+                <button className="scan-trigger" disabled={!targetAuthorized || targetBusy} onClick={runTargetPortScan}>
+                  {targetBusy ? "Scanning..." : "Run port scan"}
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <h3 style={{ margin: 0 }}>API-spec test</h3>
+                <input
+                  placeholder="base URL (e.g. http://localhost:3000)"
+                  value={apiBaseUrl}
+                  onChange={(event) => setApiBaseUrl(event.target.value)}
+                  style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--border, #3334)", background: "transparent", color: "inherit" }}
+                />
+                <textarea
+                  placeholder="Paste OpenAPI JSON spec"
+                  value={apiSpec}
+                  onChange={(event) => setApiSpec(event.target.value)}
+                  rows={5}
+                  style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--border, #3334)", background: "transparent", color: "inherit", fontFamily: "monospace", fontSize: "0.85em" }}
+                />
+                <button className="scan-trigger" disabled={!targetAuthorized || targetBusy} onClick={runTargetApiScan}>
+                  {targetBusy ? "Scanning..." : "Run API scan"}
+                </button>
+              </div>
+            </div>
+
+            {targetError && <p style={{ color: "var(--danger, #e05252)", marginTop: "1rem" }}>{targetError}</p>}
+            {targetSummary && <p style={{ opacity: 0.7, marginTop: "1rem" }}>{targetSummary}</p>}
+
+            {targetFindings.length > 0 && (
+              <ul style={{ listStyle: "none", padding: 0, margin: "0.5rem 0 0" }}>
+                {targetFindings.map((finding, index) => (
+                  <li key={index} style={{ padding: "0.75rem 0", borderTop: "1px solid var(--border, #3333)" }}>
+                    <span style={{ fontWeight: 600, textTransform: "uppercase" }}>{finding.severity}</span>
+                    {" · "}
+                    {finding.ruleId}
+                    {" · "}
+                    <code>{finding.file}</code> — {finding.title}
+                    <div style={{ opacity: 0.75, fontSize: "0.9em", marginTop: "0.25rem" }}>{finding.comment}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <footer className="page-footer">

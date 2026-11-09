@@ -8,6 +8,8 @@ import { rm } from "node:fs/promises";
 import { config } from "./config.js";
 import { Repo, Scan, User, oid, type Finding } from "./models.js";
 import { gemini, scanWithGemini } from "./gemini.js";
+import { scanExposure } from "./exposure.js";
+import { portScanTarget, apiSpecScan } from "./target.js";
 import { cloneRepo, getDiff, readSource, exec } from "./git.js";
 import { exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment } from "./github.js";
 
@@ -352,6 +354,34 @@ app.post("/repos/:id/scan", requireAuth, heavyLimiter, async (req: AuthedRequest
   }
 });
 
+// ---------- Target scans: live port scan + API spec test (ad-hoc, not tied to a repo) ----------
+app.post("/target/port-scan", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
+  try {
+    const host = String(req.body?.host ?? "").trim();
+    const authorized = req.body?.authorized === true;
+    if (!host) return res.status(400).json({ error: "host is required" });
+    console.log(`\n[Otto API] Live port scan requested for: ${host} (authorized=${authorized})`);
+    const result = await portScanTarget(host, authorized);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || String(err) });
+  }
+});
+
+app.post("/target/api-scan", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
+  try {
+    const baseUrl = String(req.body?.baseUrl ?? "").trim();
+    const spec = String(req.body?.spec ?? "");
+    const authorized = req.body?.authorized === true;
+    if (!spec) return res.status(400).json({ error: "spec (OpenAPI JSON) is required" });
+    console.log(`\n[Otto API] API spec scan requested for: ${baseUrl || "(from spec servers)"} (authorized=${authorized})`);
+    const result = await apiSpecScan(baseUrl, spec, authorized);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || String(err) });
+  }
+});
+
 // ---------- 11. POST /setup  (legacy: ingest code + store context) ----------
 app.post("/setup", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
   const url = String(req.body?.url ?? "").trim();
@@ -448,6 +478,17 @@ async function performScan(
     } else {
       console.warn(`[Otto Scan] Warning: GEMINI_API_KEY is not configured.`);
     }
+
+    // 4b. Deterministic port-exposure scan (no Gemini, no Docker) — flags backing
+    //     services (redis, mongo, ...) bound to all interfaces or published to the host.
+    const exposureFindings = scanExposure(files);
+    if (exposureFindings.length) {
+      console.log(`[Otto Scan] Port-exposure check flagged ${exposureFindings.length} finding(s):`);
+      for (const f of exposureFindings) {
+        console.log(`  - [${f.ruleId}] ${f.title} (${f.severity}) in ${f.file}:${f.line}`);
+      }
+    }
+    rawFindings = [...rawFindings, ...exposureFindings];
 
     // 5. Deduplicate findings
     const allFindings = deduplicateFindings(rawFindings);
