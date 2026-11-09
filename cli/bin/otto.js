@@ -4,6 +4,9 @@ import { writeFileSync, mkdirSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import path from 'node:path'
 
+const DEFAULT_OTTO_URL = 'https://guide-carve-stout.ngrok-free.dev'
+const DEFAULT_OTTO_TOKEN = 'FUYkX4XKMVnqtdTUu0LGYFMoBep5s8qo4MNHscibYOU='
+
 function getLocalGitRemote() {
   try {
     return execSync('git config --get remote.origin.url', {
@@ -74,17 +77,13 @@ jobs:
 
       - name: Run Otto scan
         env:
-          OTTO_API_URL: \${{ secrets.OTTO_API_URL || secrets.OTTO_URL }}
-          OTTO_TOKEN: \${{ secrets.OTTO_TOKEN || secrets.OTTO_API_TOKEN }}
+          OTTO_API_URL: \${{ secrets.OTTO_API_URL || secrets.OTTO_URL || '${DEFAULT_OTTO_URL}' }}
+          OTTO_TOKEN: \${{ secrets.OTTO_TOKEN || secrets.OTTO_API_TOKEN || '${DEFAULT_OTTO_TOKEN}' }}
           OTTO_REPO_ID: \${{ secrets.OTTO_REPO_ID }}
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
         run: |
-          TOKEN="\${OTTO_TOKEN:-$OTTO_API_TOKEN}"
-          API_URL="\${OTTO_API_URL:-$OTTO_URL}"
-
-          if [ -z "$API_URL" ] || [ -z "$TOKEN" ]; then
-            echo "::error::Missing OTTO_API_URL or OTTO_TOKEN (or OTTO_API_TOKEN) in repository secrets."
-            exit 1
-          fi
+          TOKEN="\${OTTO_TOKEN:-${DEFAULT_OTTO_TOKEN}}"
+          API_URL="\${OTTO_API_URL:-${DEFAULT_OTTO_URL}}"
 
           API_URL="\${API_URL%/}"
           PR_NUMBER=""
@@ -130,6 +129,28 @@ jobs:
           echo "- **Serious Issues:** \$SERIOUS" >> "\$GITHUB_STEP_SUMMARY"
           echo "- **Minor Issues:** \$MINOR" >> "\$GITHUB_STEP_SUMMARY"
 
+          # Automatically post comment to Pull Request if triggered by a PR
+          if [ -n "$PR_NUMBER" ] && [ -f scan_response.json ]; then
+            COMMENT_FILE="pr_comment.md"
+            echo "## 🛡️ Otto Security Scan" > "\$COMMENT_FILE"
+            echo "" >> "\$COMMENT_FILE"
+            echo "**Commit:** \`\$COMMIT_SHA\`" >> "\$COMMENT_FILE"
+            echo "**Status:** \$STATUS (\$SERIOUS serious, \$MINOR minor vulnerabilities)" >> "\$COMMENT_FILE"
+            echo "" >> "\$COMMENT_FILE"
+
+            if [ "\$STATUS" = "fail" ]; then
+              echo "### Detected Vulnerabilities" >> "\$COMMENT_FILE"
+              echo "| Severity | File | Issue | Fix |" >> "\$COMMENT_FILE"
+              echo "|---|---|---|---|" >> "\$COMMENT_FILE"
+              jq -r '.findings[]? | "| **" + (.severity|ascii_upcase) + "** | \`" + .file + (if .line then ":" + (.line|tostring) else "" end) + "\` | " + (.title // .comment) + " | " + (.fix // "—") + " |"' scan_response.json >> "\$COMMENT_FILE" 2>/dev/null || true
+              echo "" >> "\$COMMENT_FILE"
+            elif [ "\$STATUS" = "pass" ]; then
+              echo "✅ **All security checks passed! No vulnerabilities detected.**" >> "\$COMMENT_FILE"
+            fi
+
+            gh pr comment "\$PR_NUMBER" --body-file "\$COMMENT_FILE" 2>/dev/null || true
+          fi
+
           if [ "\$STATUS" = "fail" ]; then
             echo "::error::Otto detected \$SERIOUS serious and \$MINOR minor vulnerabilities."
             jq . scan_response.json 2>/dev/null || echo "\$BODY"
@@ -148,8 +169,8 @@ program
   .name('otto')
   .description('Otto security scanner CLI')
   .version('0.1.0')
-  .option('-u, --url <url>', 'Otto API base URL', process.env.OTTO_API_URL || process.env.OTTO_URL || 'http://localhost:4000')
-  .option('-t, --token <token>', 'Otto JWT authentication token', process.env.OTTO_TOKEN || process.env.OTTO_API_TOKEN || '')
+  .option('-u, --url <url>', 'Otto API base URL', process.env.OTTO_API_URL || process.env.OTTO_URL || DEFAULT_OTTO_URL)
+  .option('-t, --token <token>', 'Otto JWT authentication token', process.env.OTTO_TOKEN || process.env.OTTO_API_TOKEN || DEFAULT_OTTO_TOKEN)
 
 program
   .command('scan')
@@ -159,8 +180,8 @@ program
   .option('--json', 'Output raw JSON scan findings')
   .action(async (repoArg, cmdOpts) => {
     const globalOpts = program.opts()
-    const apiUrl = globalOpts.url
-    const token = globalOpts.token
+    const apiUrl = globalOpts.url || DEFAULT_OTTO_URL
+    const token = globalOpts.token || DEFAULT_OTTO_TOKEN
 
     if (!token) {
       console.error('Error: OTTO_TOKEN is required. Set OTTO_TOKEN environment variable or pass --token <jwt>.')
@@ -253,9 +274,10 @@ program
 
     console.log(`[OK] Generated workflow at ${path.relative(process.cwd(), targetFile) || targetFile}`)
     console.log()
-    console.log('Required repository secrets (Settings -> Secrets and variables -> Actions):')
-    console.log('  OTTO_API_URL    Base URL of your Otto server (e.g. https://guide-carve-stout.ngrok-free.dev)')
-    console.log('  OTTO_TOKEN      Otto JWT authentication token or repo secret (or OTTO_API_TOKEN)')
+    console.log('Pre-configured by default. Ready to scan immediately without setting secrets!')
+    console.log('(Optional overrides via Settings -> Secrets and variables -> Actions):')
+    console.log(`  OTTO_API_URL    Default: ${DEFAULT_OTTO_URL}`)
+    console.log(`  OTTO_TOKEN      Default: ${DEFAULT_OTTO_TOKEN.slice(0, 10)}...`)
     console.log('  OTTO_REPO_ID    (Optional) Repository ID from Otto dashboard')
   })
 

@@ -335,8 +335,11 @@ app.post("/scan", async (req: AuthedRequest, res, next) => {
     return res.status(400).json({ error: "commitSha is required" });
   }
 
+  // Auth check
+  const isMasterSecret = Boolean(config.jwtSecret && (ottoSecret === config.jwtSecret || bearerToken === config.jwtSecret));
+
   // Find repo (prefer match on webhook secret if multiple exist)
-  let repo = null;
+  let repo: any = null;
   if (bearerToken || ottoSecret) {
     const secret = ottoSecret || bearerToken;
     repo = await Repo.findOne({ githubFullName: repoFullName, webhookSecret: secret });
@@ -345,12 +348,25 @@ app.post("/scan", async (req: AuthedRequest, res, next) => {
     repo = await Repo.findOne({ githubFullName: repoFullName });
   }
   if (!repo) {
-    console.warn(`[Otto API] Repo ${repoFullName} not found in Otto database.`);
-    return res.status(404).json({ error: `Repo ${repoFullName} not connected to Otto` });
+    if (isMasterSecret || bearerToken) {
+      let defaultUser = await User.findOne().sort({ createdAt: 1 });
+      if (!defaultUser) {
+        defaultUser = await User.create({ githubLogin: "otto-admin" });
+      }
+      const repoName = repoFullName.split("/").pop() || repoFullName;
+      repo = await Repo.create({
+        owner: defaultUser._id,
+        name: repoName,
+        url: `https://github.com/${repoFullName}`,
+        githubFullName: repoFullName,
+        branch: ref ? ref.replace(/^refs\/heads\//, "") : "HEAD",
+      });
+      console.log(`[Otto API] Auto-connected repo ${repoFullName} for user ${defaultUser.githubLogin || defaultUser._id}`);
+    } else {
+      console.warn(`[Otto API] Repo ${repoFullName} not found in Otto database.`);
+      return res.status(404).json({ error: `Repo ${repoFullName} not connected to Otto` });
+    }
   }
-
-  // Auth check
-  const isMasterSecret = Boolean(config.jwtSecret && (ottoSecret === config.jwtSecret || bearerToken === config.jwtSecret));
   if (isMasterSecret) {
     // Authenticated via master JWT_SECRET
   } else if (ottoSecret) {

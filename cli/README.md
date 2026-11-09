@@ -18,10 +18,12 @@ node ./bin/otto.js --help
 
 ## Configuration
 
-Set configuration via environment variables or pass options directly to commands:
+Otto CLI comes pre-configured with default credentials for instant zero-config usage. No environment variables are required to start scanning!
 
-- `OTTO_API_URL` (or `-u, --url`): Base URL for the Otto API (default: `http://localhost:4000`).
-- `OTTO_TOKEN` (or `-t, --token`): JWT bearer token obtained from Otto authentication.
+If you wish to override the backend instance or authentication token, you can pass options or set environment variables:
+
+- `OTTO_API_URL` (or `-u, --url`): Base URL for the Otto API (default: `https://guide-carve-stout.ngrok-free.dev`).
+- `OTTO_TOKEN` (or `-t, --token`): Authentication token (default: pre-configured master token).
 
 ## Commands
 

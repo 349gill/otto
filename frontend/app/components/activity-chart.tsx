@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import type { ScanHistoryPoint } from "../otto-api";
 
 type ActivityChartProps = {
@@ -44,12 +43,6 @@ export default function ActivityChart({
   chartMaximum,
   selectedName,
 }: ActivityChartProps) {
-  const [animKey, setAnimKey] = useState(0);
-
-  useEffect(() => {
-    setAnimKey((k) => k + 1);
-  }, [selectedName, chartHistory]);
-
   const severeLine = makeChartPoints(
     chartHistory.map((point) => point.serious),
     chartMaximum
@@ -94,7 +87,6 @@ export default function ActivityChart({
               <span>0</span>
             </div>
             <svg
-              key={animKey}
               className="activity-chart"
               viewBox="0 0 640 180"
               preserveAspectRatio="none"
