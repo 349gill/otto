@@ -11,6 +11,8 @@ import {
   getRepository,
   getRepositories,
   triggerScan,
+  signOut,
+  applyFix,
   type ApiFinding,
   type ApiRepo,
   type ApiRepoDetail,
@@ -269,7 +271,7 @@ export default function ConnectedPage() {
 
   // Connect repository modal
   const [setupOpen, setSetupOpen] = useState(false);
-  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupBusy, setSetupBusy] = useState<string | null>(null);
   const [setupError, setSetupError] = useState("");
   const [githubRepos, setGithubRepos] = useState<GitHubRepo[]>([]);
   const [loadingGhRepos, setLoadingGhRepos] = useState(false);
@@ -278,6 +280,9 @@ export default function ConnectedPage() {
 
   // Selected finding dialog
   const [selectedFinding, setSelectedFinding] = useState<DisplayFinding | null>(null);
+  const [applyingFix, setApplyingFix] = useState(false);
+  const [fixResult, setFixResult] = useState<{ number: number; html_url: string; title: string } | null>(null);
+  const [fixError, setFixError] = useState("");
 
   // Initialize Auth
   useEffect(() => {
@@ -379,6 +384,17 @@ export default function ConnectedPage() {
         setLoadingGhRepos(false);
       });
   }, [setupOpen, token]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (selectedFinding) setSelectedFinding(null);
+        else if (setupOpen && !setupBusy) setSetupOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedFinding, setupOpen, setupBusy]);
 
   const repos = workspace?.repos ?? [];
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
@@ -531,9 +547,38 @@ export default function ConnectedPage() {
     }
   }
 
+  async function handleApplyFix() {
+    if (!token || !selectedFinding || !selectedFinding.fix || applyingFix) return;
+    setApplyingFix(true);
+    setFixError("");
+    setFixResult(null);
+
+    try {
+      const repoFindings = workspace?.details[selectedFinding.repoId]?.current?.findings ?? [];
+      const findingIndex = repoFindings.findIndex(
+        (f) => f.ruleId === selectedFinding.ruleId && f.file === selectedFinding.file && f.line === selectedFinding.line
+      );
+      const res = await applyFix(token, selectedFinding.repoId, findingIndex >= 0 ? findingIndex : 0);
+      if (res.pullRequests && res.pullRequests.length > 0) {
+        setFixResult(res.pullRequests[0]);
+      } else {
+        setFixError("No pull request could be created.");
+      }
+    } catch (err: any) {
+      setFixError(err.message || "Failed to create fix PR.");
+    } finally {
+      setApplyingFix(false);
+    }
+  }
+
+  useEffect(() => {
+    setFixResult(null);
+    setFixError("");
+  }, [selectedFinding]);
+
   async function handleConnectRepo(fullName: string) {
     if (!token) return;
-    setSetupBusy(true);
+    setSetupBusy(fullName);
     setSetupError("");
     try {
       await connectRepo(token, fullName);
@@ -545,7 +590,7 @@ export default function ConnectedPage() {
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : "Unable to connect repository.");
     } finally {
-      setSetupBusy(false);
+      setSetupBusy(null);
     }
   }
 
@@ -560,7 +605,14 @@ export default function ConnectedPage() {
     }
   }
 
-  function handleSignOut() {
+  async function handleSignOut() {
+    if (token) {
+      try {
+        await signOut(token);
+      } catch {
+        /* best effort signout */
+      }
+    }
     window.sessionStorage.removeItem("otto-token");
     window.sessionStorage.removeItem("otto-email");
     window.sessionStorage.removeItem("otto-name");
@@ -601,8 +653,8 @@ export default function ConnectedPage() {
             <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
               <OttoLogo className="h-11 w-auto" />
             </div>
-            <p style={{ textAlign: "center", color: "var(--muted)", margin: "-6px 0 24px", fontSize: "11px", letterSpacing: "0.02em" }}>
-              AUTOMATED CODE &amp; NETWORK SECURITY
+            <p style={{ textAlign: "center", color: "var(--muted)", margin: "-6px 0 24px", fontSize: "12px" }}>
+              Automated code and network security
             </p>
 
             {authError && <div className="form-error" role="alert">{authError}</div>}
@@ -823,7 +875,7 @@ export default function ConnectedPage() {
               <h1>{selectedRepo ? selectedName : "Security overview"}</h1>
               <p>
                 {selectedRepo
-                  ? `${selectedRepo.githubFullName || selectedRepo.url} — Branch: ${
+                  ? `${selectedRepo.githubFullName || selectedRepo.url} | Branch: ${
                       workspace?.details[selectedRepo.id]?.repo.branch ?? "HEAD"
                     }`
                   : "Ranked vulnerabilities across application code and network configurations."}
@@ -1147,12 +1199,12 @@ export default function ConnectedPage() {
                     </span>
 
                     <span>
-                      <span className="rule-id">{finding.ruleId || "—"}</span>
+                      <span className="rule-id">{finding.ruleId || "-"}</span>
                     </span>
 
                     <span>
                       <span className={`source-badge ${finding.source}`}>
-                        Gemini AI
+                        {finding.source === "ai" ? "Gemini AI" : "Static Check"}
                       </span>
                     </span>
 
@@ -1181,15 +1233,15 @@ export default function ConnectedPage() {
             </div>
           </section>
 
-          <section className="panel" id="target" style={{ marginTop: "1.5rem", padding: "1.5rem" }}>
-            <div style={{ marginBottom: "0.75rem" }}>
-              <h2 style={{ margin: 0 }}>Scan a target</h2>
-              <p style={{ margin: "0.25rem 0 0", opacity: 0.7 }}>
+          <section className="panel target-section" id="target">
+            <div>
+              <h2>Target scan</h2>
+              <p>
                 Ad-hoc port scan or API-spec test against a host you own or are authorized to test.
               </p>
             </div>
 
-            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0.75rem 0" }}>
+            <label className="target-auth-label">
               <input
                 type="checkbox"
                 checked={targetAuthorized}
@@ -1198,34 +1250,34 @@ export default function ConnectedPage() {
               <span>I own or am authorized to test this target</span>
             </label>
 
-            <div style={{ display: "grid", gap: "1.5rem", gridTemplateColumns: "1fr 1fr" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <h3 style={{ margin: 0 }}>Port scan</h3>
+            <div className="target-grid">
+              <div className="target-column">
+                <h3>Port scan</h3>
                 <input
+                  className="target-input"
                   placeholder="host or IP (e.g. 127.0.0.1)"
                   value={targetHost}
                   onChange={(event) => setTargetHost(event.target.value)}
-                  style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--border, #3334)", background: "transparent", color: "inherit" }}
                 />
                 <button className="scan-trigger" disabled={!targetAuthorized || targetBusy} onClick={runTargetPortScan}>
                   {targetBusy ? "Scanning..." : "Run port scan"}
                 </button>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <h3 style={{ margin: 0 }}>API-spec test</h3>
+              <div className="target-column">
+                <h3>API-spec test</h3>
                 <input
+                  className="target-input"
                   placeholder="base URL (e.g. http://localhost:3000)"
                   value={apiBaseUrl}
                   onChange={(event) => setApiBaseUrl(event.target.value)}
-                  style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--border, #3334)", background: "transparent", color: "inherit" }}
                 />
                 <textarea
+                  className="target-textarea"
                   placeholder="Paste OpenAPI JSON spec"
                   value={apiSpec}
                   onChange={(event) => setApiSpec(event.target.value)}
                   rows={5}
-                  style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--border, #3334)", background: "transparent", color: "inherit", fontFamily: "monospace", fontSize: "0.85em" }}
                 />
                 <button className="scan-trigger" disabled={!targetAuthorized || targetBusy} onClick={runTargetApiScan}>
                   {targetBusy ? "Scanning..." : "Run API scan"}
@@ -1233,19 +1285,19 @@ export default function ConnectedPage() {
               </div>
             </div>
 
-            {targetError && <p style={{ color: "var(--danger, #e05252)", marginTop: "1rem" }}>{targetError}</p>}
-            {targetSummary && <p style={{ opacity: 0.7, marginTop: "1rem" }}>{targetSummary}</p>}
+            {targetError && <p className="target-error">{targetError}</p>}
+            {targetSummary && <p className="target-summary">{targetSummary}</p>}
 
             {targetFindings.length > 0 && (
-              <ul style={{ listStyle: "none", padding: 0, margin: "0.5rem 0 0" }}>
+              <ul className="target-findings">
                 {targetFindings.map((finding, index) => (
-                  <li key={index} style={{ padding: "0.75rem 0", borderTop: "1px solid var(--border, #3333)" }}>
-                    <span style={{ fontWeight: 600, textTransform: "uppercase" }}>{finding.severity}</span>
+                  <li key={index} className="target-finding-item">
+                    <span className="target-finding-severity">{finding.severity}</span>
                     {" · "}
                     {finding.ruleId}
                     {" · "}
-                    <code>{finding.file}</code> — {finding.title}
-                    <div style={{ opacity: 0.75, fontSize: "0.9em", marginTop: "0.25rem" }}>{finding.comment}</div>
+                    <code>{finding.file}</code> : {finding.title}
+                    <div className="target-finding-detail">{finding.comment}</div>
                   </li>
                 ))}
               </ul>
@@ -1263,7 +1315,7 @@ export default function ConnectedPage() {
 
       {/* Connect Repository Dialog */}
       {setupOpen && (
-        <div className="dialog-backdrop" onClick={() => !setupBusy && setSetupOpen(false)}>
+        <div className="dialog-backdrop" onClick={() => setupBusy === null && setSetupOpen(false)}>
           <section
             className="finding-dialog setup-dialog"
             style={{ width: "min(100%, 560px)" }}
@@ -1274,7 +1326,7 @@ export default function ConnectedPage() {
           >
             <div className="dialog-top">
               <span className="section-kicker">LINK REPOSITORY</span>
-              <button onClick={() => setSetupOpen(false)} aria-label="Close dialog" disabled={setupBusy}>
+              <button onClick={() => setSetupOpen(false)} aria-label="Close dialog" disabled={setupBusy !== null}>
                 ×
               </button>
             </div>
@@ -1286,10 +1338,11 @@ export default function ConnectedPage() {
             <div style={{ display: "flex", gap: "8px", marginBottom: "14px", borderBottom: "1px solid var(--border)", paddingBottom: "10px" }}>
               <button
                 type="button"
-                className={`scan-trigger ${activeTab === "github" ? "" : "rule-id"}`}
+                className="scan-trigger"
                 style={{
-                  border: activeTab === "github" ? "1px solid var(--teal)" : "1px solid var(--border)",
-                  background: activeTab === "github" ? "var(--teal-soft)" : "transparent",
+                  border: activeTab === "github" ? "1px solid var(--ink)" : "1px solid var(--border)",
+                  background: activeTab === "github" ? "var(--ink)" : "transparent",
+                  color: activeTab === "github" ? "var(--surface)" : "var(--ink)",
                 }}
                 onClick={() => setActiveTab("github")}
               >
@@ -1297,10 +1350,11 @@ export default function ConnectedPage() {
               </button>
               <button
                 type="button"
-                className={`scan-trigger ${activeTab === "manual" ? "" : "rule-id"}`}
+                className="scan-trigger"
                 style={{
-                  border: activeTab === "manual" ? "1px solid var(--teal)" : "1px solid var(--border)",
-                  background: activeTab === "manual" ? "var(--teal-soft)" : "transparent",
+                  border: activeTab === "manual" ? "1px solid var(--ink)" : "1px solid var(--border)",
+                  background: activeTab === "manual" ? "var(--ink)" : "transparent",
+                  color: activeTab === "manual" ? "var(--surface)" : "var(--ink)",
                 }}
                 onClick={() => setActiveTab("manual")}
               >
@@ -1334,10 +1388,10 @@ export default function ConnectedPage() {
                         ) : (
                           <button
                             className="github-repo-connect-btn"
-                            disabled={setupBusy}
+                            disabled={setupBusy !== null}
                             onClick={() => handleConnectRepo(gh.full_name)}
                           >
-                            {setupBusy ? "Linking..." : "+ Connect"}
+                            {setupBusy === gh.full_name ? "Linking..." : "+ Connect"}
                           </button>
                         )}
                       </div>
@@ -1378,8 +1432,8 @@ export default function ConnectedPage() {
                     placeholder="https://github.com/owner/repository"
                   />
                 </label>
-                <button className="auth-submit" disabled={setupBusy || !manualUrl}>
-                  {setupBusy ? "Connecting..." : "Connect Repository"}
+                <button className="auth-submit" disabled={setupBusy !== null || !manualUrl}>
+                  {setupBusy === manualUrl ? "Connecting..." : "Connect Repository"}
                 </button>
               </form>
             )}
@@ -1403,7 +1457,7 @@ export default function ConnectedPage() {
                   {selectedFinding.severity}
                 </span>
                 <span className={`source-badge ${selectedFinding.source}`}>
-                  Gemini AI
+                  {selectedFinding.source === "ai" ? "Gemini AI" : "Static Check"}
                 </span>
                 <span className="rule-id" style={{ fontSize: "10px" }}>
                   {selectedFinding.ruleId}
@@ -1438,6 +1492,27 @@ export default function ConnectedPage() {
                 </div>
                 <p>{selectedFinding.fix}</p>
                 <small>Review the suggestion and verify it against your code and policy before applying.</small>
+
+                <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {!fixResult ? (
+                    <button
+                      className="fix-pr-button"
+                      disabled={applyingFix}
+                      onClick={handleApplyFix}
+                      type="button"
+                    >
+                      {applyingFix ? "Opening Pull Request..." : "Approve & Open Pull Request"}
+                    </button>
+                  ) : (
+                    <div className="fix-pr-result">
+                      <span>✓ PR opened:</span>
+                      <a href={fixResult.html_url} target="_blank" rel="noopener noreferrer">
+                        #{fixResult.number} {fixResult.title}
+                      </a>
+                    </div>
+                  )}
+                  {fixError && <div className="fix-pr-error" role="alert">{fixError}</div>}
+                </div>
               </div>
             )}
 

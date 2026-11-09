@@ -132,3 +132,118 @@ export async function exchangeCodeForToken(
   if (data.error) throw new Error(`GitHub OAuth error: ${data.error_description ?? data.error}`);
   return data.access_token;
 }
+
+export async function createBranch(
+  token: string,
+  owner: string,
+  repo: string,
+  branchName: string,
+  fromSha: string,
+): Promise<void> {
+  const url = `${API}/repos/${owner}/${repo}/git/refs`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...headers(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: fromSha }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub create branch ${res.status}: ${text}`);
+  }
+}
+
+export async function createOrUpdateFile(
+  token: string,
+  owner: string,
+  repo: string,
+  filePath: string,
+  content: string,
+  message: string,
+  branch: string,
+): Promise<void> {
+  // Fetch existing file sha so the PUT is treated as an update, not a conflict
+  let sha: string | undefined;
+  const getUrl = `${API}/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`;
+  const getRes = await fetch(getUrl, { headers: headers(token) });
+  if (getRes.ok) {
+    const data = (await getRes.json()) as any;
+    sha = data.sha;
+  }
+
+  const putUrl = `${API}/repos/${owner}/${repo}/contents/${filePath}`;
+  const body: Record<string, string> = {
+    message,
+    content: Buffer.from(content).toString("base64"),
+    branch,
+  };
+  if (sha) body.sha = sha;
+
+  const res = await fetch(putUrl, {
+    method: "PUT",
+    headers: { ...headers(token), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub create/update file ${res.status}: ${text}`);
+  }
+}
+
+export async function createPullRequest(
+  token: string,
+  owner: string,
+  repo: string,
+  title: string,
+  body: string,
+  head: string,
+  base: string,
+): Promise<{ number: number; html_url: string }> {
+  const url = `${API}/repos/${owner}/${repo}/pulls`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...headers(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ title, body, head, base }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub create PR ${res.status}: ${text}`);
+  }
+  const data = (await res.json()) as any;
+  return { number: data.number, html_url: data.html_url };
+}
+
+export async function getDefaultBranch(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<{ branch: string; sha: string }> {
+  const repoRes = await fetch(`${API}/repos/${owner}/${repo}`, { headers: headers(token) });
+  if (!repoRes.ok) throw new Error(`GitHub get repo ${repoRes.status}: ${await repoRes.text()}`);
+  const repoData = (await repoRes.json()) as any;
+  const defaultBranch: string = repoData.default_branch ?? "main";
+
+  const refRes = await fetch(`${API}/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, {
+    headers: headers(token),
+  });
+  if (!refRes.ok) throw new Error(`GitHub get ref ${refRes.status}: ${await refRes.text()}`);
+  const refData = (await refRes.json()) as any;
+
+  return { branch: defaultBranch, sha: refData.object.sha };
+}
+
+export async function getFileContent(
+  token: string,
+  owner: string,
+  repo: string,
+  filePath: string,
+  ref: string,
+): Promise<string> {
+  const url = `${API}/repos/${owner}/${repo}/contents/${filePath}?ref=${ref}`;
+  const res = await fetch(url, { headers: headers(token) });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub get file ${res.status}: ${text}`);
+  }
+  const data = (await res.json()) as any;
+  return Buffer.from(data.content, "base64").toString("utf-8");
+}

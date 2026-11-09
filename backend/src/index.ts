@@ -7,11 +7,14 @@ import { randomBytes } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { config } from "./config.js";
 import { Repo, Scan, User, oid, type Finding } from "./models.js";
-import { gemini, scanWithGemini } from "./gemini.js";
+import { gemini, scanWithGemini, stripFences } from "./gemini.js";
 import { scanExposure } from "./exposure.js";
 import { portScanTarget, apiSpecScan } from "./target.js";
 import { cloneRepo, getDiff, readSource, exec } from "./git.js";
-import { exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment } from "./github.js";
+import {
+  exchangeCodeForToken, getGitHubUser, getGitHubRepos, postPRComment,
+  createBranch, createOrUpdateFile, createPullRequest, getDefaultBranch, getFileContent,
+} from "./github.js";
 
 type AuthedRequest = Request & { userId?: string };
 
@@ -121,6 +124,16 @@ app.get("/auth/github/callback", authLimiter, async (req, res) => {
     }
     res.redirect(`${config.frontendOrigin}/#error=${encodeURIComponent(err.message)}`);
   }
+});
+
+// ---------- POST /auth/signout ----------
+app.post("/auth/signout", requireAuth, async (req: AuthedRequest, res) => {
+  const user = await User.findById(req.userId);
+  if (user) {
+    user.githubToken = "";
+    await user.save();
+  }
+  res.json({ ok: true });
 });
 
 // ---------- 4. GET /repos  (list connected repos) ----------
@@ -616,6 +629,100 @@ function formatPRComment(findings: Finding[], commit: string, counts: { serious:
   lines.push("*Otto Security · Findings are advisory — review before acting.*");
   return lines.join("\n");
 }
+
+// ---------- POST /repos/:id/apply-fix  (create PR with AI-applied fix) ----------
+app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRequest, res) => {
+  const id = oid(req.params.id as string);
+  const repo = id && (await Repo.findOne({ _id: id, owner: req.userId }));
+  if (!repo) return res.status(404).json({ error: "Repo not found" });
+
+  const user = await User.findById(req.userId);
+  if (!user?.githubToken) return res.status(400).json({ error: "No GitHub token. Sign in with GitHub first." });
+  if (!repo.githubFullName) return res.status(400).json({ error: "Repo is not connected to GitHub" });
+
+  const latestScan = await Scan.findOne({ repo: repo._id }).sort({ createdAt: -1 });
+  if (!latestScan || latestScan.findings.length === 0) {
+    return res.status(404).json({ error: "No scan findings to fix" });
+  }
+
+  // Accept either a single findingIndex or an array of findings indices
+  const indices: number[] = Array.isArray(req.body?.findings)
+    ? req.body.findings
+    : typeof req.body?.findingIndex === "number"
+      ? [req.body.findingIndex]
+      : [];
+
+  if (indices.length === 0) return res.status(400).json({ error: "findingIndex or findings[] is required" });
+
+  const findings = indices.map((i) => latestScan.findings[i]).filter(Boolean);
+  const fixable = findings.filter((f) => f.fix);
+  if (fixable.length === 0) return res.status(400).json({ error: "None of the selected findings have a suggested fix" });
+
+  const [repoOwner, repoName] = repo.githubFullName.split("/");
+  const pullRequests: { number: number; html_url: string; title: string }[] = [];
+
+  for (const finding of fixable) {
+    try {
+      const { branch: baseBranch, sha: baseSha } = await getDefaultBranch(user.githubToken, repoOwner, repoName);
+      const branchName = `otto-fix/${finding.ruleId}-${Date.now()}`;
+
+      await createBranch(user.githubToken, repoOwner, repoName, branchName, baseSha);
+
+      const currentContent = await getFileContent(user.githubToken, repoOwner, repoName, finding.file, baseBranch);
+
+      const updatedContent = await gemini(
+        `Apply this security fix to the file and return ONLY the complete updated file content, no explanation.\n\n` +
+        `File: ${finding.file}\n` +
+        `Fix to apply: ${finding.fix}\n\n` +
+        `Current file content:\n${currentContent}`
+      );
+
+      const cleanedContent = stripFences(updatedContent);
+
+      await createOrUpdateFile(
+        user.githubToken, repoOwner, repoName,
+        finding.file, cleanedContent,
+        `fix: ${finding.title}`, branchName,
+      );
+
+      const prTitle = `fix: ${finding.title}`;
+      const prBody = [
+        `## Otto Security Fix`,
+        ``,
+        `**Finding:** ${finding.title}`,
+        `**File:** \`${finding.file}\`${finding.line ? ` (line ${finding.line})` : ""}`,
+        `**Severity:** ${finding.severity}`,
+        `**Rule:** ${finding.ruleId}`,
+        ``,
+        `### Description`,
+        finding.comment,
+        ``,
+        `### Suggested Fix`,
+        `\`\`\``,
+        finding.fix,
+        `\`\`\``,
+        ``,
+        `---`,
+        `*Created by Otto Security*`,
+      ].join("\n");
+
+      const pr = await createPullRequest(
+        user.githubToken, repoOwner, repoName,
+        prTitle, prBody, branchName, baseBranch,
+      );
+
+      pullRequests.push({ number: pr.number, html_url: pr.html_url, title: prTitle });
+    } catch (err: any) {
+      console.error(`[Otto] Failed to create fix PR for ${finding.ruleId}:`, err.message || err);
+    }
+  }
+
+  if (pullRequests.length === 0) {
+    return res.status(500).json({ error: "Failed to create any fix PRs" });
+  }
+
+  res.json({ pullRequests });
+});
 
 // ---------- error handler ----------
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

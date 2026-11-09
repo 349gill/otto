@@ -143,3 +143,15 @@ export function targetApiScan(token: string, baseUrl: string, spec: string, auth
     body: JSON.stringify({ baseUrl, spec, authorized }),
   });
 }
+
+export function signOut(token: string) {
+  return request<{ ok: boolean }>("/auth/signout", token, { method: "POST" });
+}
+
+export function applyFix(token: string, repoId: string, findingIndex: number) {
+  return request<{ pullRequests: Array<{ number: number; html_url: string; title: string }> }>(
+    `/repos/${encodeURIComponent(repoId)}/apply-fix`,
+    token,
+    { method: "POST", body: JSON.stringify({ findingIndex }) },
+  );
+}
