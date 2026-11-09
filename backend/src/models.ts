@@ -1,4 +1,46 @@
+import crypto from "crypto";
 import mongoose, { Schema, Types } from "mongoose";
+
+const ENCRYPTION_KEY =
+  process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || "default-secret-key-32-bytes-long!!";
+
+function getKey(): Buffer {
+  return crypto.createHash("sha256").update(ENCRYPTION_KEY).digest();
+}
+
+export function encryptToken(text: string): string {
+  if (!text) return "";
+  const parts = text.split(":");
+  if (parts.length === 3 && parts[0].length === 24 && parts[1].length === 32) {
+    return text;
+  }
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", getKey(), iv);
+  let encrypted = cipher.update(text, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  const authTag = cipher.getAuthTag().toString("hex");
+  return `${iv.toString("hex")}:${authTag}:${encrypted}`;
+}
+
+export function decryptToken(text: string): string {
+  if (!text) return "";
+  const parts = text.split(":");
+  if (parts.length !== 3 || parts[0].length !== 24 || parts[1].length !== 32) {
+    return text;
+  }
+  try {
+    const [ivHex, authTagHex, encryptedHex] = parts;
+    const iv = Buffer.from(ivHex, "hex");
+    const authTag = Buffer.from(authTagHex, "hex");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", getKey(), iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encryptedHex, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch {
+    return text;
+  }
+}
 
 // ---------- User ----------
 const userSchema = new Schema(
@@ -7,7 +49,7 @@ const userSchema = new Schema(
     passwordHash: { type: String, default: "" },
     githubId: { type: Number, unique: true, sparse: true },
     githubLogin: { type: String, default: "" },
-    githubToken: { type: String, default: "" },
+    githubToken: { type: String, default: "", set: encryptToken, get: decryptToken },
     avatarUrl: { type: String, default: "" },
   },
   { timestamps: true }
