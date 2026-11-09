@@ -529,7 +529,7 @@ async function performScan(
       try {
         console.log(`[Otto Scan] Posting PR comment to GitHub PR #${prNumber}...`);
         const owner = await User.findById(repo.owner);
-        const ghToken = owner?.githubToken || config.githubAppToken;
+        const ghToken = config.githubAppToken || owner?.githubToken;
         if (ghToken && repo.githubFullName) {
           const [repoOwner, repoName] = repo.githubFullName.split("/");
           const commentBody = formatPRComment(allFindings, commit, counts);
@@ -626,7 +626,8 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
   if (!repo) return res.status(404).json({ error: "Repo not found" });
 
   const user = await User.findById(req.userId);
-  if (!user?.githubToken) return res.status(400).json({ error: "No GitHub token. Sign in with GitHub first." });
+  const ghToken = config.githubAppToken || user?.githubToken;
+  if (!ghToken) return res.status(400).json({ error: "No GitHub token. Sign in with GitHub or set GITHUB_APP_TOKEN in backend/.env." });
   if (!repo.githubFullName) return res.status(400).json({ error: "Repo is not connected to GitHub" });
 
   const latestScan = await Scan.findOne({ repo: repo._id }).sort({ createdAt: -1 });
@@ -634,7 +635,6 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
     return res.status(404).json({ error: "No scan findings to fix" });
   }
 
-  // Accept either a single findingIndex or an array of findings indices
   const indices: number[] = Array.isArray(req.body?.findings)
     ? req.body.findings
     : typeof req.body?.findingIndex === "number"
@@ -649,15 +649,16 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
 
   const [repoOwner, repoName] = repo.githubFullName.split("/");
   const pullRequests: { number: number; html_url: string; title: string }[] = [];
+  let lastError: Error | null = null;
 
   for (const finding of fixable) {
     try {
-      const { branch: baseBranch, sha: baseSha } = await getDefaultBranch(user.githubToken, repoOwner, repoName);
-      const branchName = `otto-fix/${finding.ruleId}-${Date.now()}`;
+      const { branch: baseBranch, sha: baseSha } = await getDefaultBranch(ghToken, repoOwner, repoName);
+      const branchName = `otto-fix/${finding.ruleId.toLowerCase()}-${Date.now()}`;
 
-      await createBranch(user.githubToken, repoOwner, repoName, branchName, baseSha);
+      await createBranch(ghToken, repoOwner, repoName, branchName, baseSha);
 
-      const currentContent = await getFileContent(user.githubToken, repoOwner, repoName, finding.file, baseBranch);
+      const currentContent = await getFileContent(ghToken, repoOwner, repoName, finding.file, baseBranch);
 
       const updatedContent = await gemini(
         `Apply this security fix to the file and return ONLY the complete updated file content, no explanation.\n\n` +
@@ -669,7 +670,7 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
       const cleanedContent = stripFences(updatedContent);
 
       await createOrUpdateFile(
-        user.githubToken, repoOwner, repoName,
+        ghToken, repoOwner, repoName,
         finding.file, cleanedContent,
         `fix: ${finding.title}`, branchName,
       );
@@ -696,18 +697,24 @@ app.post("/repos/:id/apply-fix", requireAuth, heavyLimiter, async (req: AuthedRe
       ].join("\n");
 
       const pr = await createPullRequest(
-        user.githubToken, repoOwner, repoName,
+        ghToken, repoOwner, repoName,
         prTitle, prBody, branchName, baseBranch,
       );
 
       pullRequests.push({ number: pr.number, html_url: pr.html_url, title: prTitle });
     } catch (err: any) {
       console.error(`[Otto] Failed to create fix PR for ${finding.ruleId}:`, err.message || err);
+      lastError = err;
     }
   }
 
   if (pullRequests.length === 0) {
-    return res.status(500).json({ error: "Failed to create any fix PRs" });
+    const rawMsg = lastError?.message || "Failed to create fix PR";
+    let userMsg = rawMsg;
+    if (rawMsg.includes("Resource not accessible by integration") || rawMsg.includes("403")) {
+      userMsg = "GitHub permission error: Your GitHub App needs 'Contents: Read and write' and 'Pull requests: Read and write' permissions. Alternatively, set GITHUB_APP_TOKEN in backend/.env with a Personal Access Token with repo scope.";
+    }
+    return res.status(500).json({ error: userMsg });
   }
 
   res.json({ pullRequests });

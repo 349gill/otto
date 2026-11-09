@@ -60,14 +60,19 @@ body {
   color: var(--ink, #000000);
 }
 
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { color: inherit; }
-button:focus-visible, a:focus-visible, input:focus-visible {
-  outline: 1.5px solid var(--ink);
+button, a, summary, select, input[type="checkbox"], input[type="radio"], label[for] {
+  cursor: pointer;
+}
+button:disabled, input:disabled, select:disabled, textarea:disabled {
+  cursor: not-allowed;
+}
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 
-/* --- SIDEBAR --- */
 .sidebar {
   position: sticky;
   top: 0;
@@ -191,7 +196,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .profile-copy strong { font-size: 11px; }
 .profile-menu { margin-left: auto; color: #666666; font-size: 14px; }
 
-/* --- MAIN AREA & TOPBAR --- */
 .main-area { min-width: 0; }
 .topbar { position: sticky; z-index: 4; top: 0; display: flex; align-items: center; justify-content: space-between; min-height: 56px; padding: 0 36px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .breadcrumbs { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
@@ -204,7 +208,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .theme-symbol { font-size: 13px; }
 .avatar-button { width: 26px; height: 26px; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--surface-raised); color: var(--ink); cursor: pointer; font-size: 10px; font-weight: 700; }
 
-/* --- PAGE CONTENT --- */
 .page-content { width: min(100%, 1400px); margin: 0 auto; padding: 28px 36px 32px; }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
 .eyebrow, .section-kicker { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; }
@@ -217,7 +220,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .refresh-button { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 14px; }
 .refresh-button:hover { color: var(--ink); border-color: var(--border-strong); }
 
-/* --- SUMMARY GRID --- */
 .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .summary-card, .panel { border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
 .summary-card { min-width: 0; min-height: 105px; padding: 14px 16px; }
@@ -238,7 +240,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .info-dot { background: var(--subtle); }
 .resolved-trend { color: var(--ink); font-size: 11px; }
 
-/* --- ANALYTICS GRID --- */
 .analytics-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(260px, 0.85fr); gap: 14px; margin-bottom: 16px; }
 .panel { min-width: 0; padding: 16px 18px; }
 .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -297,7 +298,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .policy-note { display: flex; align-items: flex-start; gap: 6px; margin-top: auto; padding-top: 14px; color: var(--muted); font-size: 9px; line-height: 1.4; }
 .policy-glyph { display: grid; width: 13px; height: 13px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--muted); font-size: 8px; }
 
-/* --- FINDINGS TABLE --- */
 .findings-panel { padding: 0; }
 .findings-heading { align-items: center; padding: 16px 18px 14px; }
 .search-box { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--muted); }
@@ -321,7 +321,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .finding-repo > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-tag { padding: 2px 5px; border: 1px solid var(--border); border-radius: 3px; color: var(--muted); font-size: 8px; font-weight: 600; text-transform: uppercase; }
 
-/* Badges & Pills */
 .severity-pill { display: inline-flex; align-items: center; min-height: 18px; padding: 0 6px; border-radius: 3px; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .severity-pill.serious { background: var(--ink); color: var(--surface); }
 .severity-pill.minor { border: 1px solid var(--border-strong); background: transparent; color: var(--ink); }
@@ -341,7 +340,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .page-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 20px 2px 2px; color: var(--subtle); font-size: 9px; }
 .page-footer i { width: 4px; height: 4px; border-radius: 50%; background: var(--subtle); }
 
-/* Buttons & Dialogs */
 .scan-trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--ink); border-radius: 4px; background: transparent; color: var(--ink); cursor: pointer; font-size: 10px; font-weight: 600; transition: all 120ms ease; }
 .scan-trigger:hover:not(:disabled) { background: var(--ink); color: var(--surface); }
 .scan-trigger:disabled { opacity: 0.4; cursor: wait; }
@@ -377,7 +375,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .github-repo-connect-btn.connected { border-color: var(--border); background: var(--surface-raised); color: var(--muted); cursor: default; }
 .private-badge { display: inline-flex; padding: 1px 4px; border: 1px solid var(--border); border-radius: 2px; font-size: 8px; color: var(--muted); font-weight: 500; margin-left: 5px; }
 
-/* --- AUTH SCREEN --- */
 .auth-loading { display: flex; flex-direction: column; min-height: 100vh; align-items: center; justify-content: center; gap: 12px; background: var(--page); color: var(--ink); font-size: 12px; }
 .auth-spinner { width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--ink); border-radius: 50%; animation: auth-spinner-rotate 800ms linear infinite; }
 .auth-loading-label { display: inline-flex; align-items: baseline; gap: 2px; color: var(--muted); font-size: 12px; }
@@ -414,7 +411,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* --- SCAN SUCCESS OVERLAY --- */
 .scan-success-overlay {
   position: fixed;
   top: 24px;
@@ -681,4 +677,44 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   margin-top: 8px;
   color: #ef4444;
   font-size: 10px;
+}
+
+.page-sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.target-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.target-header h2 {
+  margin: 0;
+}
+
+.target-col-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.fix-code-block {
+  margin: 8px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
 }

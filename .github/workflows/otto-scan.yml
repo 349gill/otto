@@ -1,9 +1,9 @@
-# Otto Security Scan — GitHub Actions Workflow
+# Otto Security Scan: GitHub Actions Workflow
 # Add this workflow to any repository you want Otto to automatically scan.
 #
 # Required secrets (Settings -> Secrets and variables -> Actions):
-#   OTTO_API_URL    — Your Otto backend URL (e.g. https://guide-carve-stout.ngrok-free.dev)
-#   OTTO_API_TOKEN  — Your Otto JWT token or repository webhook secret
+#   OTTO_API_URL    : Your Otto backend URL (e.g. https://guide-carve-stout.ngrok-free.dev)
+#   OTTO_API_TOKEN  : Your Otto JWT token or repository webhook secret
 #
 # Triggers on pull requests and pushes to default branches.
 # Automatically audits code changes, posts/updates PR comments with security findings
@@ -105,13 +105,13 @@ jobs:
             const minor = scan.counts?.minor || 0;
             const findings = scan.findings || [];
 
-            let comment = `## 🔒 Otto Security Scan\n\n`;
+            let comment = `## Otto Security Scan\n\n`;
             comment += `**Commit:** \`${context.sha.slice(0, 7)}\`\n`;
 
             if (findings.length === 0) {
-              comment += `**Status:** ✅ Passed - No security vulnerabilities detected.\n\n`;
+              comment += `**Status:** Passed (no security vulnerabilities detected).\n\n`;
             } else {
-              comment += `**Status:** ${serious > 0 ? '🔴 Fail' : '⚠️ Warning'} - ${findings.length} issue(s) identified (${serious} serious, ${minor} minor)\n\n`;
+              comment += `**Status:** ${serious > 0 ? 'Failed' : 'Warning'} (${findings.length} issue(s) identified: ${serious} serious, ${minor} minor)\n\n`;
 
               comment += `### Findings\n\n`;
               comment += `| File | Line | Finding | Severity | Rule |\n`;
@@ -125,7 +125,7 @@ jobs:
 
               const withFixes = findings.filter(f => f.fix && f.fix.trim());
               if (withFixes.length > 0) {
-                comment += `<details>\n<summary>💡 <b>Suggested Fixes (${withFixes.length})</b></summary>\n\n`;
+                comment += `<details>\n<summary><b>Suggested Fixes (${withFixes.length})</b></summary>\n\n`;
                 for (const f of withFixes) {
                   comment += `#### ${f.file}${f.line > 0 ? `:${f.line}` : ''} (${f.ruleId || 'Fix'})\n`;
                   comment += `**${f.title}**\n\n`;
@@ -144,7 +144,7 @@ jobs:
               issue_number: context.issue.number,
             });
 
-            const existing = comments.find(c => c.body && c.body.includes('## 🔒 Otto Security Scan'));
+            const existing = comments.find(c => c.body && c.body.includes('## Otto Security Scan'));
             if (existing) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,

@@ -18,8 +18,20 @@ import {
   type ApiRepoDetail,
   type GitHubRepo,
   type ScanHistoryPoint,
+  targetPortScan,
+  targetApiScan,
 } from "./otto-api";
-import { targetPortScan, targetApiScan } from "./otto-api";
+import Topbar from "./components/topbar";
+import Sidebar from "./components/sidebar";
+import SummaryCards from "./components/summary-cards";
+import ActivityChart from "./components/activity-chart";
+import ExposureBreakdown from "./components/exposure-breakdown";
+import FindingsTable, { type DisplayFinding } from "./components/findings-table";
+import TargetScanPanel from "./components/target-scan-panel";
+import ConnectRepoModal from "./components/connect-repo-modal";
+import FindingDialog from "./components/finding-dialog";
+import LoginView from "./components/login-view";
+import { CheckIcon, CloseIcon, PlayIcon, RefreshIcon } from "./components/icons";
 
 type WorkspaceData = {
   repos: ApiRepo[];
@@ -138,14 +150,6 @@ function createPreviewWorkspace(): WorkspaceData {
   };
 }
 
-type DisplayFinding = ApiFinding & {
-  key: string;
-  repoId: string;
-  repoName: string;
-  scannedAt: string;
-  commit: string;
-};
-
 async function loadWorkspace(token: string): Promise<WorkspaceData> {
   const { repos } = await getRepositories(token);
   const details = await Promise.all(
@@ -175,45 +179,11 @@ async function loadWorkspace(token: string): Promise<WorkspaceData> {
   return { repos, details: Object.fromEntries(details) };
 }
 
-function makeChartPoints(values: number[], maximum: number) {
-  const width = 640;
-  const height = 220;
-  const padding = 16;
-  return values
-    .map((value, index) => {
-      const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
-      const y = height - padding - (value / maximum) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
-
-function makeChartBand(values: number[], maximum: number) {
-  const width = 640;
-  const height = 220;
-  const padding = 16;
-  const upper = values.map((value, index) => {
-    const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
-    const y = height - padding - (value / maximum) * (height - padding * 2);
-    return `${x},${y}`;
-  });
-  const lower = values.map((value, index) => {
-    const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
-    const y = height - padding - (value / maximum) * (height - padding * 2);
-    return `${x},${Math.min(height - padding, y + 12)}`;
-  }).reverse();
-  return [...upper, ...lower].join(" ");
-}
-
 function displayDate(value?: string | null) {
   if (!value) return "Not yet scanned";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown";
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
-}
-
-function shortCommit(commit?: string | null) {
-  return commit ? commit.slice(0, 7) : "No commit";
 }
 
 export default function ConnectedPage() {
@@ -233,7 +203,6 @@ export default function ConnectedPage() {
     setTimelineDates(dates);
   }, []);
 
-  // Sync theme with localStorage and html attribute
   useEffect(() => {
     const saved = window.localStorage.getItem("otto-theme");
     if (saved === "dark" || saved === "light") {
@@ -248,6 +217,7 @@ export default function ConnectedPage() {
     window.localStorage.setItem("otto-theme", next);
     document.documentElement.setAttribute("data-theme", next);
   }
+
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [userAvatar, setUserAvatar] = useState("");
@@ -266,30 +236,26 @@ export default function ConnectedPage() {
   const [targetAuthorized, setTargetAuthorized] = useState(false);
   const [targetFindings, setTargetFindings] = useState<ApiFinding[]>([]);
   const [targetSummary, setTargetSummary] = useState("");
-  const [targetBusy, setTargetBusy] = useState(false);
+  const [targetBusy, setTargetBusy] = useState<"port" | "api" | null>(null);
   const [targetError, setTargetError] = useState("");
 
-  // Connect repository modal
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupBusy, setSetupBusy] = useState<string | null>(null);
   const [setupError, setSetupError] = useState("");
   const [githubRepos, setGithubRepos] = useState<GitHubRepo[]>([]);
   const [loadingGhRepos, setLoadingGhRepos] = useState(false);
-  const [manualUrl, setManualUrl] = useState("");
-  const [activeTab, setActiveTab] = useState<"github" | "manual">("github");
 
-  // Selected finding dialog
   const [selectedFinding, setSelectedFinding] = useState<DisplayFinding | null>(null);
   const [applyingFix, setApplyingFix] = useState(false);
   const [fixResult, setFixResult] = useState<{ number: number; html_url: string; title: string } | null>(null);
   const [fixError, setFixError] = useState("");
 
-  // Initialize Auth
   useEffect(() => {
     let active = true;
 
-    const isPreview = process.env.NODE_ENV === "development"
-      && new URLSearchParams(window.location.search).get("preview") === "1";
+    const isPreview =
+      process.env.NODE_ENV === "development" &&
+      new URLSearchParams(window.location.search).get("preview") === "1";
     if (isPreview) {
       Promise.resolve().then(() => {
         if (!active) return;
@@ -305,7 +271,6 @@ export default function ConnectedPage() {
       };
     }
 
-    // Check hash for OAuth token redirect
     const hash = window.location.hash.slice(1);
     if (hash) {
       const params = new URLSearchParams(hash);
@@ -366,7 +331,6 @@ export default function ConnectedPage() {
     };
   }, []);
 
-  // Fetch GitHub repos when modal opens
   useEffect(() => {
     if (!setupOpen || !token) return;
     setLoadingGhRepos(true);
@@ -376,7 +340,6 @@ export default function ConnectedPage() {
         setGithubRepos(data.repos);
       })
       .catch((err) => {
-        // User may have logged in with email and has no linked GitHub token
         setGithubRepos([]);
         setSetupError(err.message || "Failed to load GitHub repositories.");
       })
@@ -421,7 +384,6 @@ export default function ConnectedPage() {
     .filter((date): date is string => Boolean(date))
     .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0];
 
-  // Continuous 14-day timeline populated on client mount
   const timelineMap = new Map<string, ScanHistoryPoint>();
   for (const dateStr of timelineDates) {
     timelineMap.set(dateStr, { date: dateStr, serious: 0, minor: 0, scans: 0 });
@@ -440,10 +402,6 @@ export default function ConnectedPage() {
   const chartHistory = [...timelineMap.values()].sort((left, right) => left.date.localeCompare(right.date));
   const rawMax = Math.max(0, ...chartHistory.flatMap((point) => [point.serious, point.minor]));
   const chartMaximum = Math.max(4, rawMax);
-  const severeLine = makeChartPoints(chartHistory.map((point) => point.serious), chartMaximum);
-  const minorLine = makeChartPoints(chartHistory.map((point) => point.minor), chartMaximum);
-  const severeBand = makeChartBand(chartHistory.map((point) => point.serious), chartMaximum);
-  const minorBand = makeChartBand(chartHistory.map((point) => point.minor), chartMaximum);
 
   const allFindings: DisplayFinding[] = scopedRepos
     .flatMap((repo) => {
@@ -498,10 +456,10 @@ export default function ConnectedPage() {
   }
 
   async function runTargetPortScan() {
-    if (!token || targetBusy) return;
+    if (!token || targetBusy !== null) return;
     if (!targetAuthorized) return setTargetError("Confirm you are authorized to scan this target.");
     if (!targetHost.trim()) return setTargetError("Enter a host or IP.");
-    setTargetBusy(true);
+    setTargetBusy("port");
     setTargetError("");
     try {
       const result = await targetPortScan(token, targetHost.trim(), true);
@@ -510,15 +468,15 @@ export default function ConnectedPage() {
     } catch (error) {
       setTargetError(error instanceof Error ? error.message : "Port scan failed.");
     } finally {
-      setTargetBusy(false);
+      setTargetBusy(null);
     }
   }
 
   async function runTargetApiScan() {
-    if (!token || targetBusy) return;
+    if (!token || targetBusy !== null) return;
     if (!targetAuthorized) return setTargetError("Confirm you are authorized to test this API.");
     if (!apiSpec.trim()) return setTargetError("Paste an OpenAPI JSON spec.");
-    setTargetBusy(true);
+    setTargetBusy("api");
     setTargetError("");
     try {
       const result = await targetApiScan(token, apiBaseUrl.trim(), apiSpec, true);
@@ -527,7 +485,7 @@ export default function ConnectedPage() {
     } catch (error) {
       setTargetError(error instanceof Error ? error.message : "API scan failed.");
     } finally {
-      setTargetBusy(false);
+      setTargetBusy(null);
     }
   }
 
@@ -637,248 +595,79 @@ export default function ConnectedPage() {
     );
   }
 
-  // Login view
   if (!token || !workspace) {
     return (
-      <div className="auth-screen" data-theme={theme}>
-        <main className="auth-main" id="signin">
-          <button
-            className="auth-theme-toggle"
-            onClick={toggleTheme}
-            aria-pressed={theme === "dark"}
-          >
-            {theme === "light" ? "◐ Dark mode" : "☼ Light mode"}
-          </button>
-          <div className="auth-panel">
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
-              <OttoLogo className="h-11 w-auto" />
-            </div>
-            <p style={{ textAlign: "center", color: "var(--muted)", margin: "-6px 0 24px", fontSize: "12px" }}>
-              Automated code and network security
-            </p>
-
-            {authError && <div className="form-error" role="alert">{authError}</div>}
-
-            <button
-              className="github-connect"
-              type="button"
-              style={{ width: "100%", height: "46px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
-              onClick={handleGitHubLogin}
-            >
-              <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577v-2.234c-3.338.726-4.043-1.416-4.043-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.729.083-.729 1.205.084 1.84 1.237 1.84 1.237 1.07 1.834 2.807 1.304 3.492.997.108-.775.418-1.305.762-1.605-2.665-.304-5.466-1.333-5.466-5.93 0-1.31.468-2.381 1.236-3.221-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.552 3.297-1.23 3.297-1.23.655 1.652.243 2.873.12 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.804 5.624-5.475 5.921.43.372.814 1.102.814 2.222v3.293c0 .319.216.694.825.576C20.565 22.092 24 17.597 24 12.297c0-6.627-5.373-12-12-12" />
-              </svg>
-              Sign in with GitHub
-            </button>
-
-            <p style={{ textAlign: "center", color: "var(--muted)", margin: "16px 0 0", fontSize: "10px", lineHeight: "1.5" }}>
-              Sign in with GitHub to access your repositories and monitor pull requests for security vulnerabilities.
-            </p>
-          </div>
-        </main>
-      </div>
+      <LoginView
+        theme={theme}
+        authError={authError}
+        onToggleTheme={toggleTheme}
+        onGitHubLogin={handleGitHubLogin}
+      />
     );
   }
 
-  // Dashboard view
   return (
     <div className="dashboard" data-theme={theme}>
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <a className="brand" href="#overview" aria-label="Otto home">
-          <OttoLogo className="h-5 w-auto" />
-          <span className="brand-ai">SECURITY</span>
-        </a>
+      <Sidebar
+        userName={userName}
+        userEmail={userEmail}
+        userAvatar={userAvatar}
+        previewMode={previewMode}
+        repos={repos}
+        selectedRepoId={selectedRepoId}
+        allFindingsCount={allFindings.length}
+        vulnFindingsCount={vulnFindings.length}
+        portFindingsCount={portFindings.length}
+        findingFilter={findingFilter}
+        onSelectRepo={setSelectedRepoId}
+        onOpenConnectModal={() => {
+          setSetupError("");
+          setSetupOpen(true);
+        }}
+        onSetFindingFilter={setFindingFilter}
+        onSignOut={handleSignOut}
+      />
 
-        <div className="workspace-switcher">
-          {userAvatar ? (
-            <img src={userAvatar} alt={userName} className="workspace-avatar" style={{ borderRadius: "5px" }} />
-          ) : (
-            <span className="workspace-avatar">{userName.slice(0, 1).toUpperCase() || "O"}</span>
-          )}
-          <span className="workspace-copy">
-            <strong>{userName || "Otto workspace"}</strong>
-            <small>{userEmail || "Connected with GitHub"}</small>
-          </span>
-          <span className="switcher-caret" aria-hidden="true">⌄</span>
-        </div>
-
-        <nav className="primary-nav" aria-label="Main navigation">
-          <button
-            className="nav-item active"
-            onClick={() => document.getElementById("overview")?.scrollIntoView({ behavior: "smooth" })}
-          >
-            <span className="nav-glyph">◫</span> Overview
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => {
-              setFindingFilter("all");
-              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
-            }}
-          >
-            <span className="nav-glyph">⌕</span> Findings{" "}
-            <span className="nav-count">{allFindings.length}</span>
-          </button>
-          <button
-            className={`nav-item${findingFilter === "vuln" ? " active" : ""}`}
-            onClick={() => {
-              setFindingFilter("vuln");
-              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
-            }}
-          >
-            <span className="nav-glyph">⚠</span> Vulnerability scan{" "}
-            <span className="nav-count">{vulnFindings.length}</span>
-          </button>
-          <button
-            className={`nav-item${findingFilter === "port" ? " active" : ""}`}
-            onClick={() => {
-              setFindingFilter("port");
-              document.getElementById("findings")?.scrollIntoView({ behavior: "smooth" });
-            }}
-          >
-            <span className="nav-glyph">⇄</span> Port scan{" "}
-            <span className="nav-count">{portFindings.length}</span>
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => document.getElementById("activity")?.scrollIntoView({ behavior: "smooth" })}
-          >
-            <span className="nav-glyph">↗</span> Activity
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => document.getElementById("target")?.scrollIntoView({ behavior: "smooth" })}
-          >
-            <span className="nav-glyph">◎</span> Target scan
-          </button>
-        </nav>
-
-        <div className="sidebar-section">
-          <div className="sidebar-heading">
-            <span>LINKED REPOSITORIES</span>
-            <button
-              aria-label="Connect GitHub repository"
-              title="Connect a GitHub repository"
-              onClick={() => {
-                setSetupError("");
-                setSetupOpen(true);
-              }}
-            >
-              + Connect
-            </button>
-          </div>
-
-          <button
-            className={`target-item ${selectedRepoId === null ? "selected" : ""}`}
-            onClick={() => setSelectedRepoId(null)}
-          >
-            <span className="target-symbol all-symbol">✳</span>
-            <span className="target-label">All repositories</span>
-            <span className="target-count">{repos.length}</span>
-          </button>
-
-          {repos.map((repo, index) => (
-            <button
-              key={repo.id}
-              className={`target-item ${selectedRepoId === repo.id ? "selected" : ""}`}
-              onClick={() => setSelectedRepoId(repo.id)}
-            >
-              <span className={`repo-avatar ${["mint", "coral", "gold"][index % 3]}`}>
-                {repo.name.slice(0, 2).toUpperCase()}
-              </span>
-              <span className="target-label" title={repo.githubFullName || repo.name}>
-                {repo.name}
-              </span>
-              <span className="target-count">
-                {(repo.lastScan?.counts.serious ?? 0) + (repo.lastScan?.counts.minor ?? 0)}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="sidebar-bottom">
-          <div className="connection-state">
-            <span className="connection-dot" /> {previewMode ? "Demo preview data" : "API connected"}
-          </div>
-          <button className="profile-button" onClick={handleSignOut}>
-            {userAvatar ? (
-              <img src={userAvatar} alt={userName} className="profile-avatar" style={{ borderRadius: "5px" }} />
-            ) : (
-              <span className="profile-avatar">{userName.slice(0, 1).toUpperCase() || "O"}</span>
-            )}
-            <span className="profile-copy">
-              <strong>{userName || userEmail}</strong>
-              <small>Sign out</small>
-            </span>
-            <span className="profile-menu">↗</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
       <main className="main-area" id="overview">
-        {/* Topbar */}
-        <header className="topbar">
-          <div className="breadcrumbs">
-            <span>Workspace</span>
-            <span className="crumb-slash">/</span>
-            <strong>{selectedName}</strong>
-          </div>
-          <div className="topbar-actions">
-            <span className="demo-label">
-              <span /> LIVE API
-            </span>
-            <button
-              className="theme-toggle"
-              onClick={toggleTheme}
-              aria-pressed={theme === "dark"}
-            >
-              <span className="theme-symbol" aria-hidden="true">
-                {theme === "light" ? "◐" : "☼"}
-              </span>
-              <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
-            </button>
-            <button className="signout-button" onClick={handleSignOut} title="Sign out of Otto">
-              Sign out
-            </button>
-          </div>
-        </header>
+        <Topbar
+          selectedName={selectedName}
+          theme={theme}
+          previewMode={previewMode}
+          onToggleTheme={toggleTheme}
+          onSignOut={handleSignOut}
+        />
 
-        {/* Scan Success Toast */}
         {scanSuccess && (
           <div className="scan-success-overlay" role="status" aria-live="polite">
             <div className="scan-success-box">
-              <div className="scan-success-icon">✓</div>
+              <div className="scan-success-icon" aria-hidden="true">
+                <CheckIcon className="w-4 h-4" />
+              </div>
               <div>
-                <strong>Scan Completed</strong>
-                <p>Code and security vulnerabilities analyzed.</p>
+                <strong>Scan completed</strong>
+                <p>Code and network vulnerabilities analyzed.</p>
               </div>
               <button
                 className="scan-success-close"
                 onClick={() => setScanSuccess(false)}
-                aria-label="Dismiss"
+                aria-label="Dismiss scan notification"
               >
-                ×
+                <CloseIcon className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         )}
 
         <div className="page-content">
-          {/* Page Heading & Actions */}
           <section className="page-heading">
             <div>
-              <div className="eyebrow">
-                <span className="eyebrow-rule" /> CODE &amp; NETWORK SECURITY
-              </div>
-              <h1>{selectedRepo ? selectedName : "Security overview"}</h1>
-              <p>
+              <h1>{selectedRepo ? selectedName : "Overview"}</h1>
+              <p className="page-sub">
                 {selectedRepo
-                  ? `${selectedRepo.githubFullName || selectedRepo.url} | Branch: ${
+                  ? `${selectedRepo.githubFullName || selectedRepo.url} (${
                       workspace?.details[selectedRepo.id]?.repo.branch ?? "HEAD"
-                    }`
-                  : "Ranked vulnerabilities across application code and network configurations."}
+                    })`
+                  : `${repos.length} monitored repositories`}
               </p>
             </div>
             <div className="scan-status">
@@ -888,31 +677,34 @@ export default function ConnectedPage() {
                     className="scan-trigger"
                     disabled={scanning}
                     onClick={() => handleTriggerScan(selectedRepo.id)}
+                    aria-label="Scan repository now"
                   >
-                    {scanning ? "Scanning..." : "▶ Scan now"}
+                    <PlayIcon className="w-3 h-3 inline-block mr-1" />
+                    {scanning ? "Scanning..." : "Scan now"}
                   </button>
                   <button
                     className="refresh-button"
                     title="Disconnect repository"
                     style={{ color: "var(--serious)" }}
                     onClick={() => handleDisconnectRepo(selectedRepo.id)}
+                    aria-label="Disconnect repository"
                   >
-                    ✕
+                    <CloseIcon className="w-3.5 h-3.5" />
                   </button>
                 </>
               )}
-              <span className="scan-status-dot" />
+              <span className="scan-status-dot" aria-hidden="true" />
               <span>
-                Latest scan <strong>{displayDate(latestScanDate)}</strong>
+                Latest: <strong>{displayDate(latestScanDate)}</strong>
               </span>
               <button
                 className="refresh-button"
-                aria-label="Refresh workspace"
+                aria-label="Refresh workspace data"
                 title="Refresh from backend"
                 disabled={refreshing}
                 onClick={refreshWorkspace}
               >
-                {refreshing ? "…" : "↻"}
+                <RefreshIcon className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
               </button>
             </div>
           </section>
@@ -921,607 +713,83 @@ export default function ConnectedPage() {
             <div className="page-error" role="alert">
               {pageError}
               <button onClick={() => setPageError("")} aria-label="Dismiss error">
-                ×
+                <CloseIcon className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
 
-          {/* Metric Summary Cards */}
-          <section className="summary-grid" aria-label="Latest scan summary">
-            <article className="summary-card serious-card">
-              <div className="summary-card-top">
-                <span>Serious vulnerabilities</span>
-                <span className="severity-mark serious-mark">!</span>
-              </div>
-              <div className="summary-number">
-                {latestCounts.serious}
-                <span className="summary-unit"> current</span>
-              </div>
-              <div className="summary-foot">
-                <span className="severity-dot serious-dot" /> High risk in context
-              </div>
-            </article>
+          <SummaryCards
+            seriousCount={latestCounts.serious}
+            minorCount={latestCounts.minor}
+            repoCount={scopedRepos.length}
+            passingRepoCount={passingRepos}
+            totalScans={totalScans}
+          />
 
-            <article className="summary-card minor-card">
-              <div className="summary-card-top">
-                <span>Minor vulnerabilities</span>
-                <span className="severity-mark minor-mark">~</span>
-              </div>
-              <div className="summary-number">
-                {latestCounts.minor}
-                <span className="summary-unit"> current</span>
-              </div>
-              <div className="summary-foot">
-                <span className="severity-dot minor-dot" /> Secondary or chain risk
-              </div>
-            </article>
-
-            <article className="summary-card info-card">
-              <div className="summary-card-top">
-                <span>Connected repositories</span>
-                <span className="severity-mark info-mark">⌘</span>
-              </div>
-              <div className="summary-number">
-                {scopedRepos.length}
-                <span className="summary-unit"> repos</span>
-              </div>
-              <div className="summary-foot">
-                <span className="severity-dot info-dot" /> Audited on every PR
-              </div>
-            </article>
-
-            <article className="summary-card resolved-card">
-              <div className="summary-card-top">
-                <span>Passing latest scans</span>
-                <span className="resolved-mark">✓</span>
-              </div>
-              <div className="summary-number">
-                {passingRepos}
-                <span className="summary-unit"> of {scopedRepos.length} repos</span>
-              </div>
-              <div className="summary-foot">
-                <span className="resolved-trend">↗</span>
-                {totalScans} scans recorded
-              </div>
-            </article>
-          </section>
-
-          {/* Analytics Charts */}
           <section className="analytics-grid" id="activity">
-            <article className="panel chart-panel">
-              <div className="panel-heading chart-heading">
-                <div>
-                  <span className="section-kicker">SCAN HISTORY</span>
-                  <h2>Vulnerabilities over 30 days</h2>
-                  <p>Severity counts recorded by completed scans</p>
-                </div>
-                <span className="chart-period">LAST 30 DAYS</span>
-              </div>
-
-              <div className="chart-legend">
-                <span>
-                  <i className="legend-dot severe-dot" /> Severe
-                </span>
-                <span>
-                  <i className="legend-dot minor-dot" /> Minor
-                </span>
-                <span className="chart-target">{selectedName}</span>
-              </div>
-
-              {chartHistory.length > 0 ? (
-                <>
-                  <div className="chart-wrap">
-                    <div className="chart-y-labels" aria-hidden="true">
-                      <span>{chartMaximum}</span>
-                      <span>{Math.round(chartMaximum * 0.66)}</span>
-                      <span>{Math.round(chartMaximum * 0.33)}</span>
-                      <span>0</span>
-                    </div>
-                    <svg
-                      className="activity-chart"
-                      viewBox="0 0 640 220"
-                      preserveAspectRatio="none"
-                      role="img"
-                      aria-label={`Vulnerabilities over 30 days for ${selectedName}`}
-                    >
-                      <polygon points={minorBand} className="chart-area minor-area" />
-                      <polygon points={severeBand} className="chart-area severe-area" />
-                      {[16, 78.7, 141.3, 204].map((y) => (
-                        <line key={`grid-${y}`} x1="16" y1={y} x2="624" y2={y} className="chart-gridline" />
-                      ))}
-                      <polyline points={severeLine} pathLength="1" className="chart-line severe-line" />
-                      <polyline points={minorLine} pathLength="1" className="chart-line minor-line" />
-                      {chartHistory.map((point, index) => {
-                        const width = 640;
-                        const height = 220;
-                        const padding = 16;
-                        const x = padding + (index * (width - padding * 2)) / Math.max(chartHistory.length - 1, 1);
-                        const ySevere = height - padding - (point.serious / chartMaximum) * (height - padding * 2);
-                        const yMinor = height - padding - (point.minor / chartMaximum) * (height - padding * 2);
-                        return (
-                          <g key={point.date}>
-                            {point.serious > 0 && (
-                              <circle cx={x} cy={ySevere} r="4.5" className="chart-point severe-point" stroke="var(--surface)" strokeWidth="2">
-                                <title>{`${point.date}: ${point.serious} severe vulnerability${point.serious > 1 ? "s" : ""}`}</title>
-                              </circle>
-                            )}
-                            {point.minor > 0 && (
-                              <circle cx={x} cy={yMinor} r="4" className="chart-point minor-point" stroke="var(--surface)" strokeWidth="1.5">
-                                <title>{`${point.date}: ${point.minor} minor vulnerability${point.minor > 1 ? "s" : ""}`}</title>
-                              </circle>
-                            )}
-                          </g>
-                        );
-                      })}
-                    </svg>
-                  </div>
-                  <div className="chart-x-labels">
-                    {chartHistory.map((point, index) => (
-                      <span
-                        className={
-                          index % Math.max(1, Math.ceil(chartHistory.length / 5)) === 0 ||
-                          index === chartHistory.length - 1
-                            ? ""
-                            : "label-hidden"
-                        }
-                        key={point.date}
-                      >
-                        {new Date(`${point.date}T00:00:00`).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </span>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div className="chart-empty">Scan history will appear here after a repository has been scanned.</div>
-              )}
-              <div className="chart-note">
-                <span className="note-spark">✳</span> High-sensitivity vulnerability detection powered by Gemini AI.
-              </div>
-            </article>
-
-            <article className="panel distribution-panel">
-              <div className="panel-heading">
-                <div>
-                  <span className="section-kicker">CURRENT EXPOSURE</span>
-                  <h2>By severity</h2>
-                  <p>Counts from latest scans</p>
-                </div>
-                <span className="distribution-total">
-                  {latestCounts.serious + latestCounts.minor}
-                  <small> total</small>
-                </span>
-              </div>
-
-              <div className="severity-bar" aria-label="Latest findings by severity">
-                <span className="bar-serious" style={{ flex: Math.max(latestCounts.serious, 0.1) }} />
-                <span className="bar-minor" style={{ flex: Math.max(latestCounts.minor, 0.1) }} />
-              </div>
-
-              <div className="severity-breakdown">
-                <div>
-                  <span className="severity-dot serious-dot" />
-                  <span>Serious</span>
-                  <strong>{latestCounts.serious}</strong>
-                </div>
-                <div>
-                  <span className="severity-dot minor-dot" />
-                  <span>Minor</span>
-                  <strong>{latestCounts.minor}</strong>
-                </div>
-              </div>
-
-              <div className="distribution-divider" />
-
-              <div className="resolution-callout">
-                <span className="callout-check">✓</span>
-                <div>
-                  <strong>{passingRepos} repositories passed</strong>
-                  <small>Zero serious or minor vulnerabilities found</small>
-                </div>
-              </div>
-
-              <div className="policy-note">
-                <span className="policy-glyph">i</span>
-                <span>
-                  Findings cite file, line, and rule ID. PR comments suggest concrete code fixes.
-                </span>
-              </div>
-            </article>
+            <ActivityChart
+              chartHistory={chartHistory}
+              chartMaximum={chartMaximum}
+              selectedName={selectedName}
+            />
+            <ExposureBreakdown
+              seriousCount={latestCounts.serious}
+              minorCount={latestCounts.minor}
+              passingRepoCount={passingRepos}
+              repoCount={scopedRepos.length}
+            />
           </section>
 
-          {/* Findings Table */}
-          <section className="panel findings-panel" id="findings">
-            <div className="panel-heading findings-heading">
-              <div>
-                <span className="section-kicker">SECURITY FINDINGS</span>
-                <h2>Vulnerability list</h2>
-                <p>Deterministic checks and AI triage results across active repos</p>
-              </div>
-              <label className="search-box">
-                <span aria-hidden="true">⌕</span>
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search vulnerabilities, rules..."
-                  aria-label="Search findings"
-                />
-                <kbd>/</kbd>
-              </label>
-            </div>
+          <FindingsTable
+            findings={visibleFindings}
+            search={search}
+            onSearchChange={setSearch}
+            onSelectFinding={setSelectedFinding}
+          />
 
-            <div className="findings-table" role="table" aria-label="Current repository findings">
-              <div
-                className="finding-header"
-                role="row"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "minmax(200px, 2.5fr) minmax(120px, 1fr) 90px 100px 85px 110px 20px",
-                }}
-              >
-                <span>VULNERABILITY</span>
-                <span>REPOSITORY</span>
-                <span>RULE ID</span>
-                <span>ENGINE</span>
-                <span>SEVERITY</span>
-                <span>SCAN</span>
-                <span />
-              </div>
-
-              {visibleFindings.length > 0 ? (
-                visibleFindings.map((finding) => (
-                  <button
-                    className="finding-row"
-                    key={finding.key}
-                    onClick={() => setSelectedFinding(finding)}
-                    role="row"
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "minmax(200px, 2.5fr) minmax(120px, 1fr) 90px 100px 85px 110px 20px",
-                    }}
-                  >
-                    <span className="finding-main">
-                      <span className={`row-severity ${finding.severity === "serious" ? "serious" : "minor"}`} />
-                      <span className="finding-copy">
-                        <strong>{finding.title || finding.comment}</strong>
-                        <small>
-                          {finding.file}
-                          {finding.line > 0 ? `:${finding.line}` : ""} <i /> {shortCommit(finding.commit)}
-                        </small>
-                      </span>
-                    </span>
-
-                    <span className="finding-repo">
-                      <span className="source-tag code">Code</span>
-                      <span>{finding.repoName}</span>
-                    </span>
-
-                    <span>
-                      <span className="rule-id">{finding.ruleId || "-"}</span>
-                    </span>
-
-                    <span>
-                      <span className={`source-badge ${finding.source}`}>
-                        {finding.source === "ai" ? "Gemini AI" : "Static Check"}
-                      </span>
-                    </span>
-
-                    <span>
-                      <span className={`severity-pill ${finding.severity === "serious" ? "serious" : "minor"}`}>
-                        {finding.severity}
-                      </span>
-                    </span>
-
-                    <span className="finding-age">{displayDate(finding.scannedAt)}</span>
-                    <span className="row-arrow" aria-hidden="true">
-                      ↗
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <div className="empty-state">
-                  {search ? "No vulnerabilities match this search." : "No vulnerabilities detected in this view."}
-                </div>
-              )}
-            </div>
-
-            <div className="findings-footer">
-              <span>{visibleFindings.length} findings from latest scans</span>
-              <span className="findings-footer-note">Select any finding to inspect evidence, rule, and suggested fix.</span>
-            </div>
-          </section>
-
-          <section className="panel target-section" id="target">
-            <div>
-              <h2>Target scan</h2>
-              <p>
-                Ad-hoc port scan or API-spec test against a host you own or are authorized to test.
-              </p>
-            </div>
-
-            <label className="target-auth-label">
-              <input
-                type="checkbox"
-                checked={targetAuthorized}
-                onChange={(event) => setTargetAuthorized(event.target.checked)}
-              />
-              <span>I own or am authorized to test this target</span>
-            </label>
-
-            <div className="target-grid">
-              <div className="target-column">
-                <h3>Port scan</h3>
-                <input
-                  className="target-input"
-                  placeholder="host or IP (e.g. 127.0.0.1)"
-                  value={targetHost}
-                  onChange={(event) => setTargetHost(event.target.value)}
-                />
-                <button className="scan-trigger" disabled={!targetAuthorized || targetBusy} onClick={runTargetPortScan}>
-                  {targetBusy ? "Scanning..." : "Run port scan"}
-                </button>
-              </div>
-
-              <div className="target-column">
-                <h3>API-spec test</h3>
-                <input
-                  className="target-input"
-                  placeholder="base URL (e.g. http://localhost:3000)"
-                  value={apiBaseUrl}
-                  onChange={(event) => setApiBaseUrl(event.target.value)}
-                />
-                <textarea
-                  className="target-textarea"
-                  placeholder="Paste OpenAPI JSON spec"
-                  value={apiSpec}
-                  onChange={(event) => setApiSpec(event.target.value)}
-                  rows={5}
-                />
-                <button className="scan-trigger" disabled={!targetAuthorized || targetBusy} onClick={runTargetApiScan}>
-                  {targetBusy ? "Scanning..." : "Run API scan"}
-                </button>
-              </div>
-            </div>
-
-            {targetError && <p className="target-error">{targetError}</p>}
-            {targetSummary && <p className="target-summary">{targetSummary}</p>}
-
-            {targetFindings.length > 0 && (
-              <ul className="target-findings">
-                {targetFindings.map((finding, index) => (
-                  <li key={index} className="target-finding-item">
-                    <span className="target-finding-severity">{finding.severity}</span>
-                    {" · "}
-                    {finding.ruleId}
-                    {" · "}
-                    <code>{finding.file}</code> : {finding.title}
-                    <div className="target-finding-detail">{finding.comment}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <TargetScanPanel
+            targetAuthorized={targetAuthorized}
+            targetHost={targetHost}
+            apiBaseUrl={apiBaseUrl}
+            apiSpec={apiSpec}
+            targetBusy={targetBusy}
+            targetError={targetError}
+            targetSummary={targetSummary}
+            targetFindings={targetFindings}
+            onAuthorizeChange={setTargetAuthorized}
+            onTargetHostChange={setTargetHost}
+            onApiBaseUrlChange={setApiBaseUrl}
+            onApiSpecChange={setApiSpec}
+            onRunPortScan={runTargetPortScan}
+            onRunApiScan={runTargetApiScan}
+          />
 
           <footer className="page-footer">
-            <span>Otto Security Assessment Platform</span>
-            <span>
-              <i /> Deterministic analysis with Gemini AI triage · PR comments enabled
-            </span>
+            <span>Otto Security</span>
+            <span>{repos.length} repos · {totalScans} scans</span>
           </footer>
         </div>
       </main>
 
-      {/* Connect Repository Dialog */}
-      {setupOpen && (
-        <div className="dialog-backdrop" onClick={() => setupBusy === null && setSetupOpen(false)}>
-          <section
-            className="finding-dialog setup-dialog"
-            style={{ width: "min(100%, 560px)" }}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="setup-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="dialog-top">
-              <span className="section-kicker">LINK REPOSITORY</span>
-              <button onClick={() => setSetupOpen(false)} aria-label="Close dialog" disabled={setupBusy !== null}>
-                ×
-              </button>
-            </div>
-            <h2 id="setup-title">Connect a GitHub repository</h2>
-            <p className="setup-intro">
-              Select a repository to monitor. Otto will generate project context, scan PRs via GitHub Actions, and comment fixes directly on code changes.
-            </p>
+      <ConnectRepoModal
+        isOpen={setupOpen}
+        setupBusy={setupBusy}
+        setupError={setupError}
+        loadingGhRepos={loadingGhRepos}
+        githubRepos={githubRepos}
+        onClose={() => setSetupOpen(false)}
+        onConnectRepo={handleConnectRepo}
+        onAuthorizeGitHub={handleGitHubLogin}
+      />
 
-            <div style={{ display: "flex", gap: "8px", marginBottom: "14px", borderBottom: "1px solid var(--border)", paddingBottom: "10px" }}>
-              <button
-                type="button"
-                className="scan-trigger"
-                style={{
-                  border: activeTab === "github" ? "1px solid var(--ink)" : "1px solid var(--border)",
-                  background: activeTab === "github" ? "var(--ink)" : "transparent",
-                  color: activeTab === "github" ? "var(--surface)" : "var(--ink)",
-                }}
-                onClick={() => setActiveTab("github")}
-              >
-                GitHub Repositories
-              </button>
-              <button
-                type="button"
-                className="scan-trigger"
-                style={{
-                  border: activeTab === "manual" ? "1px solid var(--ink)" : "1px solid var(--border)",
-                  background: activeTab === "manual" ? "var(--ink)" : "transparent",
-                  color: activeTab === "manual" ? "var(--surface)" : "var(--ink)",
-                }}
-                onClick={() => setActiveTab("manual")}
-              >
-                Manual URL
-              </button>
-            </div>
-
-            {setupError && <div className="form-error" role="alert">{setupError}</div>}
-
-            {activeTab === "github" ? (
-              <div>
-                {loadingGhRepos ? (
-                  <div style={{ padding: "30px", textAlign: "center", color: "var(--muted)", fontSize: "11px" }}>
-                    Loading your GitHub repositories...
-                  </div>
-                ) : githubRepos.length > 0 ? (
-                  <div className="github-repo-list">
-                    {githubRepos.map((gh) => (
-                      <div key={gh.id} className="github-repo-item">
-                        <div className="github-repo-info">
-                          <strong>
-                            {gh.full_name}
-                            {gh.private && <span className="private-badge">Private</span>}
-                          </strong>
-                          <small>{gh.description || "No description"}</small>
-                        </div>
-                        {gh.connected ? (
-                          <button className="github-repo-connect-btn connected" disabled>
-                            Connected ✓
-                          </button>
-                        ) : (
-                          <button
-                            className="github-repo-connect-btn"
-                            disabled={setupBusy !== null}
-                            onClick={() => handleConnectRepo(gh.full_name)}
-                          >
-                            {setupBusy === gh.full_name ? "Linking..." : "+ Connect"}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ padding: "20px", textAlign: "center", color: "var(--muted)", fontSize: "11px" }}>
-                    <p>No GitHub repositories found.</p>
-                    <button
-                      className="github-connect"
-                      style={{ marginTop: "12px", width: "100%" }}
-                      onClick={handleGitHubLogin}
-                    >
-                      Authorize GitHub Access
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!manualUrl.trim()) return;
-                  const parts = manualUrl.replace(/\.git$/, "").split("/");
-                  const fullName = `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
-                  handleConnectRepo(fullName);
-                }}
-                className="setup-form"
-              >
-                <label>
-                  Repository URL
-                  <input
-                    name="url"
-                    type="url"
-                    value={manualUrl}
-                    onChange={(e) => setManualUrl(e.target.value)}
-                    required
-                    placeholder="https://github.com/owner/repository"
-                  />
-                </label>
-                <button className="auth-submit" disabled={setupBusy !== null || !manualUrl}>
-                  {setupBusy === manualUrl ? "Connecting..." : "Connect Repository"}
-                </button>
-              </form>
-            )}
-          </section>
-        </div>
-      )}
-
-      {/* Finding Detail Dialog */}
-      {selectedFinding && (
-        <div className="dialog-backdrop" onClick={() => setSelectedFinding(null)}>
-          <section
-            className="finding-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="dialog-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="dialog-top">
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span className={`severity-pill ${selectedFinding.severity === "serious" ? "serious" : "minor"}`}>
-                  {selectedFinding.severity}
-                </span>
-                <span className={`source-badge ${selectedFinding.source}`}>
-                  {selectedFinding.source === "ai" ? "Gemini AI" : "Static Check"}
-                </span>
-                <span className="rule-id" style={{ fontSize: "10px" }}>
-                  {selectedFinding.ruleId}
-                </span>
-              </div>
-              <button onClick={() => setSelectedFinding(null)} aria-label="Close dialog">
-                ×
-              </button>
-            </div>
-
-            <div className="dialog-id">
-              {selectedFinding.repoName} <i /> commit {shortCommit(selectedFinding.commit)}
-            </div>
-
-            <h2 id="dialog-title">{selectedFinding.title || selectedFinding.comment}</h2>
-            <p className="dialog-location">
-              {selectedFinding.file}
-              {selectedFinding.line > 0 ? `:${selectedFinding.line}` : ""}
-            </p>
-
-            <div className="dialog-section">
-              <span className="section-kicker">EVIDENCE &amp; DESCRIPTION</span>
-              <p>{selectedFinding.comment}</p>
-            </div>
-
-            {selectedFinding.fix && (
-              <div className="otto-suggestion">
-                <div className="otto-suggestion-heading">
-                  <OttoLogo className="h-3 w-auto" />
-                  <strong>Suggested Fix</strong>
-                  <span>ACTIONABLE</span>
-                </div>
-                <p>{selectedFinding.fix}</p>
-                <small>Review the suggestion and verify it against your code and policy before applying.</small>
-
-                <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {!fixResult ? (
-                    <button
-                      className="fix-pr-button"
-                      disabled={applyingFix}
-                      onClick={handleApplyFix}
-                      type="button"
-                    >
-                      {applyingFix ? "Opening Pull Request..." : "Approve & Open Pull Request"}
-                    </button>
-                  ) : (
-                    <div className="fix-pr-result">
-                      <span>✓ PR opened:</span>
-                      <a href={fixResult.html_url} target="_blank" rel="noopener noreferrer">
-                        #{fixResult.number} {fixResult.title}
-                      </a>
-                    </div>
-                  )}
-                  {fixError && <div className="fix-pr-error" role="alert">{fixError}</div>}
-                </div>
-              </div>
-            )}
-
-            <button className="dialog-done" onClick={() => setSelectedFinding(null)}>
-              Done
-            </button>
-          </section>
-        </div>
-      )}
+      <FindingDialog
+        finding={selectedFinding}
+        applyingFix={applyingFix}
+        fixResult={fixResult}
+        fixError={fixError}
+        onClose={() => setSelectedFinding(null)}
+        onApplyFix={handleApplyFix}
+      />
     </div>
   );
 }
