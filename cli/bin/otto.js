@@ -132,7 +132,7 @@ jobs:
           # Automatically post comment to Pull Request if triggered by a PR
           if [ -n "$PR_NUMBER" ] && [ -f scan_response.json ]; then
             COMMENT_FILE="pr_comment.md"
-            echo "## 🛡️ Otto Security Scan" > "\$COMMENT_FILE"
+            echo "## Otto Security Scan" > "\$COMMENT_FILE"
             echo "" >> "\$COMMENT_FILE"
             echo "**Commit:** \`\$COMMIT_SHA\`" >> "\$COMMENT_FILE"
             echo "**Status:** \$STATUS (\$SERIOUS serious, \$MINOR minor vulnerabilities)" >> "\$COMMENT_FILE"
